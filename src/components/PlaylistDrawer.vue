@@ -1,67 +1,85 @@
 <template>
-    <el-drawer v-model="playerStore.showPlaylist" direction="rtl" :size="380" :show-close="false"
-        class="playlist-drawer" :modal="false" @click.self="handleClickOutside">
-        <template #header>
-            <div class="playlist-header">
-                <div class="header-left">
-                    <span class="header-title">播放列表</span>
-                    <span class="song-count">{{ playerStore.playlist.length }}首</span>
-                </div>
-                <div class="header-right">
-                    <el-button text size="small" @click="handleClearAll" :disabled="playerStore.playlist.length === 0">
-                        <el-icon>
-                            <Delete />
-                        </el-icon>
-                        清空
-                    </el-button>
-                    <el-button text size="small" @click="playerStore.togglePlaylist">
-                        <el-icon>
-                            <Close />
-                        </el-icon>
-                    </el-button>
-                </div>
-            </div>
-        </template>
+    <!-- 遮罩层 -->
+    <transition name="fade">
+        <div v-if="playerStore.showPlaylist" class="playlist-overlay" @click="handleClickOutside"></div>
+    </transition>
 
-        <div class="playlist-content">
-            <div v-if="playerStore.playlist.length === 0" class="empty-state">
-                <el-empty description="播放列表为空" :image-size="120" />
+    <!-- 自定义侧边栏 -->
+    <transition name="slide">
+        <div v-if="playerStore.showPlaylist" class="playlist-drawer">
+            <!-- 头部 -->
+            <div class="playlist-header">
+                <div class="header-main">
+                    <div class="header-left">
+                        <span class="header-title">播放列表</span>
+                        <span class="song-count">{{ playerStore.playlist.length }}首</span>
+                    </div>
+                    <div class="header-right">
+                        <el-button v-if="selectedIndices.size > 0" text size="small" type="danger"
+                            @click="handleRemoveSelected" class="text-btn">
+                            删除选中
+                        </el-button>
+                        <el-button v-if="selectedIndices.size > 0" text size="small" @click="handleCancelSelect"
+                            class="text-btn">
+                            取消
+                        </el-button>
+                        <el-button v-else text size="small" @click="handleClearAll"
+                            :disabled="playerStore.playlist.length === 0" class="text-btn">
+                            清空
+                        </el-button>
+                        <el-button text size="small" @click="handleClosePlaylist" class="icon-btn">
+                            <el-icon>
+                                <Close />
+                            </el-icon>
+                        </el-button>
+                    </div>
+                </div>
             </div>
-            <div v-else class="playlist-items">
-                <div v-for="(song, index) in playerStore.playlist" :key="song.id" class="playlist-item" :class="{
-                    'is-playing': index === playerStore.currentIndex,
-                    'is-dragging': draggedIndex === index,
-                    'drag-over': dragOverIndex === index
-                }" draggable="true" @dragstart="handleDragStart(index, $event)" @dragend="handleDragEnd"
-                    @dragover.prevent="handleDragOver(index, $event)" @dragleave="handleDragLeave"
-                    @drop.prevent="handleDrop(index)" @dblclick="handlePlaySong(index)">
-                    <div class="drag-handle">
-                        <el-icon>
-                            <DCaret />
-                        </el-icon>
-                    </div>
-                    <div class="item-index">
-                        <span v-if="index !== playerStore.currentIndex" class="index-number">{{ index + 1 }}</span>
-                        <el-icon v-else class="playing-icon" :class="{ 'is-animating': playerStore.isPlaying }">
-                            <VideoPlay />
-                        </el-icon>
-                    </div>
-                    <div class="item-info">
-                        <div class="song-name">{{ song.name }}</div>
-                        <div class="song-artist">{{ song.artists }}</div>
-                    </div>
-                    <div class="item-actions">
-                        <el-button text size="small" :icon="VideoPlay" @click.stop="handlePlaySong(index)" title="播放" />
-                        <el-button text size="small" :icon="Delete" @click.stop="handleRemove(index)" title="删除" />
+
+            <!-- 内容区 -->
+            <div class="playlist-content">
+                <div v-if="playerStore.playlist.length === 0" class="empty-state">
+                    <el-empty description="播放列表为空" :image-size="120" />
+                </div>
+                <div v-else class="playlist-items">
+                    <div v-for="(song, index) in playerStore.playlist" :key="song.id" class="playlist-item" :class="{
+                        'is-playing': index === playerStore.currentIndex,
+                        'is-dragging': draggedIndex === index,
+                        'drag-over': dragOverIndex === index,
+                        'is-selected': selectedIndices.has(index)
+                    }" draggable="true" @dragstart="handleDragStart(index, $event)" @dragend="handleDragEnd"
+                        @dragover.prevent="handleDragOver(index, $event)" @dragleave="handleDragLeave"
+                        @drop.prevent="handleDrop(index, $event)" @dblclick="handlePlaySong(index)"
+                        @click="handleSongClick(index, $event)">
+                        <div class="drag-handle">
+                            <el-icon>
+                                <DCaret />
+                            </el-icon>
+                        </div>
+                        <div class="item-index">
+                            <span v-if="index !== playerStore.currentIndex" class="index-number">{{ index + 1 }}</span>
+                            <el-icon v-else class="playing-icon" :class="{ 'is-animating': playerStore.isPlaying }">
+                                <VideoPlay />
+                            </el-icon>
+                        </div>
+                        <div class="item-info">
+                            <div class="song-name">{{ song.name }}</div>
+                            <div class="song-artist">{{ song.artists }}</div>
+                        </div>
+                        <div class="item-actions">
+                            <el-button text size="small" :icon="VideoPlay" @click.stop="handlePlaySong(index)"
+                                title="播放" />
+                            <el-button text size="small" :icon="Delete" @click.stop="handleRemove(index)" title="删除" />
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
-    </el-drawer>
+    </transition>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, onMounted, onUnmounted, watch } from "vue";
 import { Delete, VideoPlay, Close, DCaret } from "@element-plus/icons-vue";
 import { usePlayerStore } from "@/stores/player";
 import { ElMessageBox, ElMessage } from "element-plus";
@@ -72,14 +90,13 @@ const playerStore = usePlayerStore();
 const draggedIndex = ref<number | null>(null);
 const dragOverIndex = ref<number | null>(null);
 
-// 点击外部关闭
-const handleClickOutside = (event: MouseEvent) => {
-    const target = event.target as HTMLElement;
-    // 检查点击的是否是遮罩层或drawer外部
-    if (target.classList.contains('el-drawer__container') ||
-        target.classList.contains('el-overlay')) {
-        playerStore.togglePlaylist();
-    }
+// 多选相关状态
+const selectedIndices = ref<Set<number>>(new Set());
+const lastSelectedIndex = ref<number | null>(null);
+
+// 点击遮罩层关闭
+const handleClickOutside = () => {
+    playerStore.togglePlaylist();
 };
 
 // 监听全局点击事件
@@ -97,6 +114,15 @@ const handleGlobalClick = (event: MouseEvent) => {
     }
 };
 
+// 监听播放列表显示状态，关闭时清空选中
+watch(() => playerStore.showPlaylist, (newVal) => {
+    if (!newVal) {
+        // 播放列表关闭时，清空选中状态
+        selectedIndices.value.clear();
+        lastSelectedIndex.value = null;
+    }
+});
+
 onMounted(() => {
     // 延迟添加监听器，避免立即触发
     setTimeout(() => {
@@ -108,16 +134,104 @@ onUnmounted(() => {
     document.removeEventListener('click', handleGlobalClick);
 });
 
+// 处理歌曲点击（支持多选）
+const handleSongClick = (index: number, event: MouseEvent) => {
+    // 只有按住 Ctrl/Cmd 时才进行多选操作
+    if (event.ctrlKey || event.metaKey) {
+        event.preventDefault(); // 阻止默认行为
+        // Ctrl/Cmd + 点击：切换选中状态
+        if (selectedIndices.value.has(index)) {
+            selectedIndices.value.delete(index);
+            // 如果取消选中后没有选中项，清空 lastSelectedIndex
+            if (selectedIndices.value.size === 0) {
+                lastSelectedIndex.value = null;
+            }
+        } else {
+            selectedIndices.value.add(index);
+            lastSelectedIndex.value = index;
+        }
+    } else if (event.shiftKey && lastSelectedIndex.value !== null) {
+        event.preventDefault(); // 阻止默认行为
+        // Shift + 点击：范围选择
+        const start = Math.min(lastSelectedIndex.value, index);
+        const end = Math.max(lastSelectedIndex.value, index);
+        selectedIndices.value.clear();
+        for (let i = start; i <= end; i++) {
+            selectedIndices.value.add(i);
+        }
+    } else {
+        // 普通点击：清空选中状态，不做其他操作（保留拖拽功能）
+        if (selectedIndices.value.size > 0) {
+            selectedIndices.value.clear();
+            lastSelectedIndex.value = null;
+        }
+    }
+};
+
 const handlePlaySong = (index: number) => {
     playerStore.currentIndex = index;
     playerStore.isPlaying = true;
     ElMessage.success(`开始播放：${playerStore.playlist[index].name}`);
+    // 清空选中状态
+    selectedIndices.value.clear();
+    lastSelectedIndex.value = null;
 };
 
 const handleRemove = (index: number) => {
     const songName = playerStore.playlist[index].name;
-    playerStore.removeFromPlaylist(index);
-    ElMessage.success(`已从播放列表移除：${songName}`);
+
+    ElMessageBox.confirm(`确定要从播放列表中删除《${songName}》吗？`, "删除确认", {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning",
+    }).then(() => {
+        playerStore.removeFromPlaylist(index);
+        ElMessage.success(`已从播放列表移除：${songName}`);
+        // 清空选中状态
+        selectedIndices.value.clear();
+        lastSelectedIndex.value = null;
+    }).catch(() => {
+        // 用户取消删除
+    });
+};
+
+// 批量删除选中的歌曲
+const handleRemoveSelected = () => {
+    if (selectedIndices.value.size === 0) {
+        ElMessage.info("请先选择要删除的歌曲");
+        return;
+    }
+
+    const count = selectedIndices.value.size;
+    ElMessageBox.confirm(`确定要删除选中的 ${count} 首歌曲吗？`, "批量删除确认", {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning",
+    }).then(() => {
+        // 从大到小排序索引，避免删除时索引变化
+        const sortedIndices = Array.from(selectedIndices.value).sort((a, b) => b - a);
+        sortedIndices.forEach((index) => {
+            playerStore.removeFromPlaylist(index);
+        });
+        ElMessage.success(`已删除 ${count} 首歌曲`);
+        selectedIndices.value.clear();
+        lastSelectedIndex.value = null;
+    }).catch(() => {
+        // 用户取消
+    });
+};
+
+// 取消选中
+const handleCancelSelect = () => {
+    selectedIndices.value.clear();
+    lastSelectedIndex.value = null;
+};
+
+// 关闭播放列表（清空选中状态）
+const handleClosePlaylist = () => {
+    selectedIndices.value.clear();
+    lastSelectedIndex.value = null;
+    playerStore.togglePlaylist();
 };
 
 const handleClearAll = () => {
@@ -132,6 +246,8 @@ const handleClearAll = () => {
         type: "warning",
     }).then(() => {
         playerStore.clearPlaylist();
+        selectedIndices.value.clear();
+        lastSelectedIndex.value = null;
         ElMessage.success("播放列表已清空");
     }).catch(() => {
         // 用户取消
@@ -140,10 +256,27 @@ const handleClearAll = () => {
 
 // 拖拽开始
 const handleDragStart = (index: number, event: DragEvent) => {
-    draggedIndex.value = index;
-    if (event.dataTransfer) {
-        event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('text/plain', index.toString());
+    // 如果当前项未被选中，且有其他选中项，则清空选中并只拖拽当前项
+    if (!selectedIndices.value.has(index) && selectedIndices.value.size > 0) {
+        selectedIndices.value.clear();
+        lastSelectedIndex.value = null;
+    }
+
+    // 如果当前项未被选中，则只拖拽当前项
+    if (!selectedIndices.value.has(index)) {
+        draggedIndex.value = index;
+        if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', JSON.stringify([index]));
+        }
+    } else {
+        // 如果当前项已被选中，则拖拽所有选中项
+        draggedIndex.value = index; // 记录拖拽起始位置
+        const selectedArray = Array.from(selectedIndices.value).sort((a, b) => a - b);
+        if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', JSON.stringify(selectedArray));
+        }
     }
 };
 
@@ -151,12 +284,23 @@ const handleDragStart = (index: number, event: DragEvent) => {
 const handleDragEnd = () => {
     draggedIndex.value = null;
     dragOverIndex.value = null;
+    // 注意：不清空选中状态，让用户可以继续操作
 };
 
 // 拖拽经过
 const handleDragOver = (index: number, event: DragEvent) => {
     event.preventDefault();
-    if (draggedIndex.value !== null && draggedIndex.value !== index) {
+
+    if (draggedIndex.value === null) return;
+
+    // 如果拖拽到选中项上，不显示插入线
+    if (selectedIndices.value.has(index)) {
+        dragOverIndex.value = null;
+        return;
+    }
+
+    // 如果不是拖拽到自己，显示插入线
+    if (draggedIndex.value !== index) {
         dragOverIndex.value = index;
     }
 };
@@ -167,73 +311,200 @@ const handleDragLeave = () => {
 };
 
 // 放置
-const handleDrop = (targetIndex: number) => {
-    if (draggedIndex.value === null || draggedIndex.value === targetIndex) {
+const handleDrop = (targetIndex: number, event: DragEvent) => {
+    if (draggedIndex.value === null) {
         dragOverIndex.value = null;
         return;
     }
 
-    const fromIndex = draggedIndex.value;
-    const playlist = [...playerStore.playlist];
-    const currentIndex = playerStore.currentIndex;
-
-    // 移动歌曲
-    const [movedSong] = playlist.splice(fromIndex, 1);
-    playlist.splice(targetIndex, 0, movedSong);
-
-    // 更新当前播放索引
-    let newCurrentIndex = currentIndex;
-    if (currentIndex === fromIndex) {
-        // 如果移动的是当前播放的歌曲
-        newCurrentIndex = targetIndex;
-    } else if (fromIndex < currentIndex && targetIndex >= currentIndex) {
-        // 从前面移到后面，当前索引-1
-        newCurrentIndex = currentIndex - 1;
-    } else if (fromIndex > currentIndex && targetIndex <= currentIndex) {
-        // 从后面移到前面，当前索引+1
-        newCurrentIndex = currentIndex + 1;
+    // 获取拖拽的索引数组
+    const draggedIndicesStr = event.dataTransfer?.getData('text/plain');
+    if (!draggedIndicesStr) {
+        dragOverIndex.value = null;
+        return;
     }
 
-    // 更新播放列表
-    playerStore.playlist = playlist;
-    playerStore.currentIndex = newCurrentIndex;
+    const draggedIndicesArray: number[] = JSON.parse(draggedIndicesStr);
+
+    // 排序拖拽的索引（保持原有顺序）
+    const sortedDraggedIndices = [...draggedIndicesArray].sort((a, b) => a - b);
+
+    // 如果目标位置在拖拽项中间，不做任何操作
+    if (sortedDraggedIndices.includes(targetIndex)) {
+        draggedIndex.value = null;
+        dragOverIndex.value = null;
+        return;
+    }
+
+    // 如果只拖拽一个项目且目标位置相同，则不做任何操作
+    if (draggedIndicesArray.length === 1 && draggedIndicesArray[0] === targetIndex) {
+        draggedIndex.value = null;
+        dragOverIndex.value = null;
+        return;
+    }
+
+    const playlist = [...playerStore.playlist];
+    const currentPlayingIndex = playerStore.currentIndex;
+
+    if (draggedIndicesArray.length === 1) {
+        // ========== 单个项目拖拽 ==========
+        const fromIndex = draggedIndicesArray[0];
+        const [movedSong] = playlist.splice(fromIndex, 1);
+
+        // 计算实际插入位置
+        let actualTargetIndex = targetIndex;
+        if (fromIndex < targetIndex) {
+            actualTargetIndex = targetIndex - 1;
+        }
+
+        playlist.splice(actualTargetIndex, 0, movedSong);
+
+        // 更新当前播放索引
+        let newCurrentIndex = currentPlayingIndex;
+        if (currentPlayingIndex === fromIndex) {
+            // 移动的是当前播放的歌曲
+            newCurrentIndex = actualTargetIndex;
+        } else if (fromIndex < currentPlayingIndex && actualTargetIndex >= currentPlayingIndex) {
+            // 从当前播放位置前面移到后面
+            newCurrentIndex = currentPlayingIndex - 1;
+        } else if (fromIndex > currentPlayingIndex && actualTargetIndex <= currentPlayingIndex) {
+            // 从当前播放位置后面移到前面
+            newCurrentIndex = currentPlayingIndex + 1;
+        }
+
+        playerStore.playlist = playlist;
+        playerStore.currentIndex = newCurrentIndex;
+    } else {
+        // ========== 多个项目拖拽 ==========
+
+        // 1. 提取要移动的歌曲（按原始顺序）
+        const movedSongs = sortedDraggedIndices.map(i => playlist[i]);
+
+        // 2. 记录当前播放的歌曲（如果在移动列表中）
+        const currentSongInMoved = sortedDraggedIndices.includes(currentPlayingIndex);
+        const currentSong = currentSongInMoved ? playlist[currentPlayingIndex] : null;
+
+        // 3. 创建新的播放列表（不包含要移动的歌曲）
+        const remainingPlaylist = playlist.filter((_, index) => !sortedDraggedIndices.includes(index));
+
+        // 4. 计算实际插入位置
+        // 计算目标位置之前有多少被移动的歌曲
+        const movedBeforeTarget = sortedDraggedIndices.filter(i => i < targetIndex).length;
+        let actualInsertIndex = targetIndex - movedBeforeTarget;
+
+        // 确保插入位置在有效范围内
+        actualInsertIndex = Math.max(0, Math.min(actualInsertIndex, remainingPlaylist.length));
+
+        // 5. 在新位置插入歌曲
+        const newPlaylist = [
+            ...remainingPlaylist.slice(0, actualInsertIndex),
+            ...movedSongs,
+            ...remainingPlaylist.slice(actualInsertIndex)
+        ];
+
+        // 6. 计算新的当前播放索引
+        let newCurrentIndex = currentPlayingIndex;
+
+        if (currentSongInMoved) {
+            // 如果当前播放的歌曲在被移动的歌曲中
+            // 找到它在新列表中的位置
+            newCurrentIndex = newPlaylist.findIndex(song => song.id === currentSong!.id);
+        } else {
+            // 如果当前播放的歌曲不在被移动的歌曲中
+            // 找到它在新列表中的位置
+            const currentSongObj = playlist[currentPlayingIndex];
+            newCurrentIndex = newPlaylist.findIndex(song => song.id === currentSongObj.id);
+        }
+
+        // 确保索引有效
+        if (newCurrentIndex === -1) {
+            newCurrentIndex = currentPlayingIndex;
+        }
+
+        playerStore.playlist = newPlaylist;
+        playerStore.currentIndex = newCurrentIndex;
+
+        // 清空选中状态
+        selectedIndices.value.clear();
+        lastSelectedIndex.value = null;
+    }
 
     draggedIndex.value = null;
     dragOverIndex.value = null;
 
-    ElMessage.success("已调整播放顺序");
+    const count = draggedIndicesArray.length;
+    ElMessage.success(count === 1 ? "已调整播放顺序" : `已移动 ${count} 首歌曲`);
 };
 </script>
 
 <style scoped lang="scss">
-:deep(.el-drawer) {
-    bottom: 70px !important;
-    top: auto !important;
-    height: calc(100vh - 70px) !important;
+// 遮罩层样式
+.playlist-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: calc(100vh - 70px);
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 999;
+    pointer-events: auto;
 }
 
-:deep(.el-drawer__header) {
-    margin-bottom: 0;
-    padding: 14px 20px;
-    border-bottom: 1px solid var(--el-border-color-lighter);
+// 自定义侧边栏
+.playlist-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 70px;
+    width: 380px;
+    background: var(--el-bg-color);
+    box-shadow: -2px 0 8px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
 }
 
-:deep(.el-drawer__body) {
-    padding: 0;
-    display: flex;
-    flex-direction: column;
+// 过渡动画
+.fade-enter-active,
+.fade-leave-active {
+    transition: opacity 0.3s;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+    opacity: 0;
+}
+
+.slide-enter-active,
+.slide-leave-active {
+    transition: transform 0.3s;
+}
+
+.slide-enter-from,
+.slide-leave-to {
+    transform: translateX(100%);
 }
 
 .playlist-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    width: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 49px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--el-border-color-lighter);
+    background: var(--el-bg-color);
+    z-index: 1;
+
+    .header-main {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        width: 100%;
+    }
 
     .header-left {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 6px;
 
         .header-title {
             font-size: 16px;
@@ -251,26 +522,46 @@ const handleDrop = (targetIndex: number) => {
         display: flex;
         align-items: center;
         gap: 4px;
+
+        .text-btn {
+            padding: 4px 10px;
+            min-width: auto;
+            height: 28px;
+            font-size: 13px;
+        }
+
+        .icon-btn {
+            padding: 4px 6px;
+            min-width: auto;
+            height: 28px;
+
+            .el-icon {
+                font-size: 16px;
+            }
+        }
     }
 }
 
 .playlist-content {
-    flex: 1;
+    position: absolute;
+    top: 49px;
+    left: 0;
+    right: 0;
+    bottom: 0;
     overflow: hidden;
-    display: flex;
-    flex-direction: column;
 
     .empty-state {
-        flex: 1;
+        height: 100%;
         display: flex;
         align-items: center;
         justify-content: center;
     }
 
     .playlist-items {
-        flex: 1;
+        height: 100%;
         overflow-y: auto;
-        padding: 4px 0;
+        overflow-x: hidden;
+        padding: 0;
 
         // 自定义滚动条
         &::-webkit-scrollbar {
@@ -293,11 +584,13 @@ const handleDrop = (targetIndex: number) => {
         .playlist-item {
             display: flex;
             align-items: center;
-            padding: 10px 20px;
-            cursor: move;
+            padding: 7px 14px;
+            cursor: default;
             transition: background 0.2s, opacity 0.2s, transform 0.2s;
-            gap: 12px;
+            gap: 8px;
             position: relative;
+            user-select: none;
+            min-height: 52px;
 
             &:hover {
                 background: var(--el-fill-color-light);
@@ -323,17 +616,46 @@ const handleDrop = (targetIndex: number) => {
                 }
             }
 
+            &.is-selected {
+                background: var(--el-color-primary-light-8) !important;
+                border-left: 3px solid var(--el-color-primary);
+                padding-left: 11px;
+
+                .song-name {
+                    font-weight: 500;
+                }
+            }
+
             &.is-dragging {
                 opacity: 0.5;
                 transform: scale(0.98);
+
+                // 如果是选中项，显示更明显的拖拽效果
+                &.is-selected {
+                    opacity: 0.7;
+                    box-shadow: 0 4px 12px rgba(64, 158, 255, 0.3);
+                }
             }
 
             &.drag-over {
-                border-top: 2px solid var(--el-color-primary);
+                border-top: 3px solid var(--el-color-primary);
+                margin-top: -1px;
+
+                &::before {
+                    content: '';
+                    position: absolute;
+                    top: -4px;
+                    left: 0;
+                    width: 8px;
+                    height: 8px;
+                    background: var(--el-color-primary);
+                    border-radius: 50%;
+                    z-index: 10;
+                }
             }
 
             .drag-handle {
-                width: 20px;
+                width: 16px;
                 flex-shrink: 0;
                 display: flex;
                 align-items: center;
@@ -342,31 +664,42 @@ const handleDrop = (targetIndex: number) => {
                 transition: opacity 0.2s;
                 cursor: grab;
                 color: var(--el-text-color-secondary);
+                touch-action: none;
+
+                &:hover {
+                    color: var(--el-color-primary);
+                }
 
                 &:active {
                     cursor: grabbing;
                 }
 
                 .el-icon {
-                    font-size: 14px;
+                    font-size: 13px;
                     transform: rotate(90deg);
                 }
             }
 
+            // 选中状态下隐藏拖拽手柄
+            &.is-selected .drag-handle {
+                opacity: 0 !important;
+                pointer-events: none;
+            }
+
             .item-index {
-                width: 30px;
+                width: 26px;
                 flex-shrink: 0;
                 display: flex;
                 align-items: center;
                 justify-content: center;
 
                 .index-number {
-                    font-size: 13px;
+                    font-size: 12px;
                     color: var(--el-text-color-secondary);
                 }
 
                 .playing-icon {
-                    font-size: 16px;
+                    font-size: 15px;
 
                     &.is-animating {
                         animation: pulse-icon 1.5s ease-in-out infinite;

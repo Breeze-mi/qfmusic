@@ -7,7 +7,7 @@
             <el-option label="专辑解析" value="album" />
         </el-select>
         <el-input v-model="searchStore.keyword" :placeholder="placeholderText" :prefix-icon="Search" clearable
-            @keyup.enter="handleSearch" />
+            @keyup.enter="handleSearch" @input="handleInput" />
         <el-button type="primary" :icon="Search" @click="handleSearch" :loading="searchStore.searching">
             {{ buttonText }}
         </el-button>
@@ -22,6 +22,7 @@ import MusicApi from "@/api/music";
 import { useSearchStore } from "@/stores/search";
 import { useSettingsStore } from "@/stores/settings";
 import { resetAPIHealthStatus } from "@/utils/request";
+import { debounce } from "@/utils/helpers";
 
 const searchStore = useSearchStore();
 const settingsStore = useSettingsStore();
@@ -74,6 +75,12 @@ const buttonText = computed(() => {
     };
     return typeMap[settingsStore.searchType];
 });
+
+// 输入防抖处理（仅用于音乐搜索的实时提示）
+const handleInput = debounce(() => {
+    // 这里可以添加搜索建议功能
+    // 目前仅作为防抖示例
+}, 300);
 
 const handleSearch = async () => {
     if (!searchStore.keyword.trim()) {

@@ -22,7 +22,7 @@
                     <span class="results-count">
                         共 {{ searchStore.total }} 首歌曲
                         <span v-if="searchStore.totalPages > 1" class="page-info">
-                            <!-- （第 {{ searchStore.currentPage }}/{{ searchStore.totalPages }} 页） -->
+
                         </span>
                     </span>
                 </div>
@@ -51,7 +51,7 @@
                         </div>
                         <div class="table-body">
                             <div v-for="(song, index) in searchStore.searchResults" :key="song.id" class="table-row"
-                                @dblclick="handlePlaySong(song)"
+                                @dblclick="handlePlaySong(song)" @contextmenu.prevent="handleContextMenu($event, song)"
                                 :class="{ 'is-playing': playerStore.currentSong?.id === song.id }">
                                 <div class="col-index">
                                     <span v-if="playerStore.currentSong?.id !== song.id">
@@ -97,51 +97,73 @@
             <div v-else class="playing-info">
                 <div class="current-playing">
                     <img :src="playerStore.currentSong.picUrl" :alt="playerStore.currentSong.name" class="large-cover"
-                        :class="{ rotating: playerStore.isPlaying }" />
+                        :class="{ rotating: playerStore.isPlaying }" loading="lazy" />
                     <h2>{{ playerStore.currentSong.name }}</h2>
                     <p>{{ playerStore.currentSong.artists }}</p>
                 </div>
+            </div>
+        </div>
+
+        <!-- 右键菜单 -->
+        <div v-if="contextMenuVisible" class="context-menu"
+            :style="{ top: contextMenuY + 'px', left: contextMenuX + 'px' }" @click="closeContextMenu">
+            <div class="menu-item" @click="handlePlaySong(contextMenuSong!)">
+                <el-icon>
+                    <VideoPlay />
+                </el-icon>
+                <span>播放</span>
+            </div>
+            <div class="menu-item" @click="handlePlayNext(contextMenuSong!)">
+                <el-icon>
+                    <DArrowRight />
+                </el-icon>
+                <span>下一首播放</span>
+            </div>
+            <div class="menu-item" @click="handleAddToPlaylist(contextMenuSong!)">
+                <el-icon>
+                    <Plus />
+                </el-icon>
+                <span>添加到播放列表</span>
             </div>
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, computed } from "vue";
+import { onMounted, ref, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
-import { Sunny, Moon, VideoPlay, Plus, Download, Setting } from "@element-plus/icons-vue";
+import { Sunny, Moon, VideoPlay, Plus, Download, Setting, DArrowRight } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import SearchBar from "@/components/SearchBar.vue";
 import { usePlayerStore } from "@/stores/player";
 import { useThemeStore } from "@/stores/theme";
 import { useSearchStore } from "@/stores/search";
 import type { Song } from "@/api/music";
-import { getAPIHealthStatus, getConsecutiveFailures } from "@/utils/request";
 
 const router = useRouter();
 const playerStore = usePlayerStore();
 const themeStore = useThemeStore();
 const searchStore = useSearchStore();
 
-// 后端状态（通过 getAPIHealthStatus 实时获取）
-const backendStatus = computed(() => {
-    const isOnline = getAPIHealthStatus();
-    const failures = getConsecutiveFailures();
+// // 后端状态，不在首页显示
+// const backendStatus = computed(() => {
+//     const isOnline = getAPIHealthStatus();
+//     const failures = getConsecutiveFailures();
 
-    let message = "";
-    if (isOnline) {
-        message = "服务器连接成功";
-    } else if (failures >= 3) {
-        message = "接口连接失败，请检查后重新搜索";
-    } else {
-        message = "服务器连接失败";
-    }
+//     let message = "";
+//     if (isOnline) {
+//         message = "服务器连接成功";
+//     } else if (failures >= 3) {
+//         message = "接口连接失败，请检查后重新搜索";
+//     } else {
+//         message = "服务器连接失败";
+//     }
 
-    return {
-        isOnline,
-        message
-    };
-});
+//     return {
+//         isOnline,
+//         message
+//     };
+// });
 
 const goToSettings = () => {
     router.push("/settings");
@@ -167,12 +189,62 @@ const handleAddToPlaylist = (song: Song) => {
     }
 };
 
+// 右键菜单状态
+const contextMenuVisible = ref(false);
+const contextMenuX = ref(0);
+const contextMenuY = ref(0);
+const contextMenuSong = ref<Song | null>(null);
 
+// 显示右键菜单
+const handleContextMenu = (event: MouseEvent, song: Song) => {
+    event.preventDefault();
+    contextMenuSong.value = song;
+    contextMenuX.value = event.clientX;
+    contextMenuY.value = event.clientY;
+    contextMenuVisible.value = true;
+};
+
+// 关闭右键菜单
+const closeContextMenu = () => {
+    contextMenuVisible.value = false;
+    contextMenuSong.value = null;
+};
+
+// 下一首播放
+const handlePlayNext = (song: Song) => {
+    const currentIndex = playerStore.currentIndex;
+    const existingIndex = playerStore.playlist.findIndex((s) => s.id === song.id);
+
+    if (existingIndex !== -1) {
+        // 如果歌曲已在播放列表中，移动到下一首位置
+        const playlist = [...playerStore.playlist];
+        const [movedSong] = playlist.splice(existingIndex, 1);
+        playlist.splice(currentIndex + 1, 0, movedSong);
+        playerStore.playlist = playlist;
+        ElMessage.success(`已将《${song.name}》移至下一首播放`);
+    } else {
+        // 如果歌曲不在播放列表中，添加到下一首位置
+        playerStore.playlist.splice(currentIndex + 1, 0, song);
+        ElMessage.success(`已将《${song.name}》添加为下一首播放`);
+    }
+    closeContextMenu();
+};
+
+// 点击其他地方关闭右键菜单
+const handleClickOutside = () => {
+    if (contextMenuVisible.value) {
+        closeContextMenu();
+    }
+};
 
 onMounted(() => {
     themeStore.initTheme();
+    document.addEventListener("click", handleClickOutside);
 });
 
+onUnmounted(() => {
+    document.removeEventListener("click", handleClickOutside);
+});
 
 </script>
 
@@ -532,6 +604,49 @@ onMounted(() => {
     50% {
         opacity: 0.8;
         box-shadow: 0 0 0 4px rgba(245, 108, 108, 0);
+    }
+}
+
+/* 右键菜单样式 */
+.context-menu {
+    position: fixed;
+    background: var(--el-bg-color-overlay);
+    border: 1px solid var(--el-border-color);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    padding: 4px 0;
+    min-width: 180px;
+    z-index: 9999;
+    backdrop-filter: blur(10px);
+
+    .menu-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        cursor: pointer;
+        transition: background 0.2s;
+        font-size: 14px;
+        color: var(--el-text-color-primary);
+
+        .el-icon {
+            font-size: 16px;
+            color: var(--el-text-color-secondary);
+        }
+
+        &:hover {
+            background: var(--el-fill-color-light);
+
+            .el-icon {
+                color: var(--el-color-primary);
+            }
+        }
+    }
+
+    .menu-divider {
+        height: 1px;
+        background: var(--el-border-color-lighter);
+        margin: 4px 0;
     }
 }
 </style>

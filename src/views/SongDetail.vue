@@ -187,7 +187,7 @@ const scrollToCurrentLyric = () => {
                 smoothScrollTo(container, targetScrollTop, 1000);
             }
         });
-    }, 850);
+    }, 860);
 };
 
 
@@ -249,8 +249,8 @@ onMounted(() => {
                 margin-bottom: 40px;
 
                 .album-cover {
-                    width: 360px;
-                    height: 360px;
+                    width: 400px; //旋转图片大小
+                    height: 400px; //旋转图片大小
                     border-radius: 50%;
                     background-size: cover;
                     background-position: center;
@@ -266,10 +266,10 @@ onMounted(() => {
             .song-info {
                 text-align: left;
                 width: 100%;
-                max-width: 360px;
+                max-width: 400px; //旋转图片大小
 
                 .song-name {
-                    font-size: 28px;
+                    font-size: 30px;
                     font-weight: 600;
                     color: var(--el-text-color-primary);
                     margin: 0 0 20px 0;
@@ -280,7 +280,7 @@ onMounted(() => {
 
                 .song-artist,
                 .song-album {
-                    font-size: 15px;
+                    font-size: 16px;
                     color: var(--el-text-color-secondary);
                     margin: 8px 0;
                     line-height: 1.6;
@@ -325,16 +325,16 @@ onMounted(() => {
 
                     .lyric-line {
                         text-align: center;
-                        font-size: 17px;
+                        font-size: 19px; //普通歌词
                         line-height: 2.8;
-                        color: var(--el-text-color-placeholder);
+                        color: var(--el-text-color-regular);
                         transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
                         padding: 8px 0;
                         cursor: default;
-                        opacity: 0.5;
+                        opacity: 0.65;
 
                         &.active {
-                            font-size: 26px;
+                            font-size: 30px; //当前播放歌词
                             font-weight: 600;
                             color: var(--el-color-primary);
                             opacity: 1;
@@ -345,8 +345,8 @@ onMounted(() => {
                         // 当前歌词的前一句和后一句稍微突出一些
                         &.active+.lyric-line,
                         &:has(+ .active) {
-                            opacity: 0.7;
-                            color: var(--el-text-color-secondary);
+                            opacity: 0.8;
+                            color: var(--el-text-color-regular);
                         }
                     }
                 }

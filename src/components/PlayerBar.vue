@@ -611,7 +611,7 @@ onMounted(async () => {
             min-width: 0;
 
             .song-name {
-                font-size: 13px;
+                font-size: 14px;
                 font-weight: 500;
                 color: var(--el-text-color-primary);
                 overflow: hidden;
@@ -621,7 +621,7 @@ onMounted(async () => {
             }
 
             .song-artist {
-                font-size: 12px;
+                font-size: 13px;
                 color: var(--el-text-color-secondary);
                 overflow: hidden;
                 text-overflow: ellipsis;
