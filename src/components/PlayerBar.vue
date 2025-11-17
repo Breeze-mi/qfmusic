@@ -3,7 +3,8 @@
         <!-- 左侧：歌曲信息 -->
         <div class="song-info" @click="goToDetail">
             <div v-if="playerStore.currentSong" class="song-cover-wrapper">
-                <img :src="playerStore.currentSong.picUrl" :alt="playerStore.currentSong.name" class="song-cover" />
+                <img :src="playerStore.currentSong.picUrl" :alt="playerStore.currentSong.name" class="song-cover"
+                    loading="lazy" />
             </div>
             <div v-if="playerStore.currentSong" class="song-details">
                 <div class="song-name">{{ playerStore.currentSong.name }}</div>
@@ -62,6 +63,7 @@ import {
 } from "@element-plus/icons-vue";
 import { usePlayerStore, PlayMode } from "@/stores/player";
 import { useCacheStore } from "@/stores/cache";
+import { useSettingsStore } from "@/stores/settings";
 import MusicApi from "@/api/music";
 import type { SongDetail } from "@/api/music";
 import { ElMessage } from "element-plus";
@@ -69,6 +71,7 @@ import { ElMessage } from "element-plus";
 const router = useRouter();
 const playerStore = usePlayerStore();
 const cacheStore = useCacheStore();
+const settingsStore = useSettingsStore();
 const audioRef = ref<HTMLAudioElement>();
 
 // 跳转到详情页或返回
@@ -149,14 +152,65 @@ watch(
                 if (songDetail) {
                     console.log(`使用缓存的歌曲: ${newSong.name}`);
                 } else {
-                    console.log(`请求API获取歌曲: ${newSong.name}`);
-                    const { data } = await MusicApi.getSong(newSong.id);
-                    if (data.value?.success) {
-                        songDetail = data.value.data;
-                        // 缓存歌曲详情
-                        cacheStore.setCachedSong(newSong.id, songDetail);
-                    } else {
-                        ElMessage.error("获取歌曲失败");
+                    console.log(`请求API获取歌曲: ${newSong.name}, 音质: ${settingsStore.quality}`);
+
+                    // 音质降级顺序：从高到低
+                    const qualityLevels = [
+                        "jymaster",   // 超清母带
+                        "sky",        // 沉浸环绕声
+                        "jyeffect",   // 高清环绕声
+                        "hires",      // Hi-Res音质
+                        "lossless",   // 无损音质
+                        "exhigh",     // 极高音质
+                        "standard"    // 标准音质
+                    ];
+
+                    // 音质名称映射
+                    const qualityNames: Record<string, string> = {
+                        jymaster: "超清母带",
+                        sky: "沉浸环绕声",
+                        jyeffect: "高清环绕声",
+                        hires: "Hi-Res",
+                        lossless: "无损",
+                        exhigh: "极高",
+                        standard: "标准"
+                    };
+
+                    // 从用户选择的音质开始尝试
+                    let currentQualityIndex = qualityLevels.indexOf(settingsStore.quality);
+                    if (currentQualityIndex === -1) {
+                        currentQualityIndex = qualityLevels.indexOf("lossless"); // 默认无损
+                    }
+
+                    while (currentQualityIndex < qualityLevels.length) {
+                        try {
+                            const { data } = await MusicApi.getSong(newSong.id, qualityLevels[currentQualityIndex]);
+                            if (data.value?.success && data.value.data?.url) {
+                                songDetail = data.value.data;
+
+                                // 如果降级了，提示用户
+                                if (currentQualityIndex > qualityLevels.indexOf(settingsStore.quality)) {
+                                    const originalQuality = settingsStore.quality;
+                                    const currentQuality = qualityLevels[currentQualityIndex];
+                                    ElMessage.warning(
+                                        `${qualityNames[originalQuality]}音质不可用，已降级到${qualityNames[currentQuality]}音质`
+                                    );
+                                }
+
+                                // 缓存歌曲详情
+                                cacheStore.setCachedSong(newSong.id, songDetail);
+                                break;
+                            }
+                        } catch (err) {
+                            console.error(`获取${qualityNames[qualityLevels[currentQualityIndex]]}音质失败:`, err);
+                        }
+
+                        // 尝试下一个音质级别
+                        currentQualityIndex++;
+                    }
+
+                    if (!songDetail) {
+                        ElMessage.error("所有音质均获取失败");
                         return;
                     }
                 }

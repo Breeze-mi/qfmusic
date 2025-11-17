@@ -35,6 +35,43 @@
                 <h2>播放</h2>
                 <div class="setting-item">
                     <div class="setting-info">
+                        <div class="setting-title">音质选择</div>
+                        <div class="setting-desc">选择播放音质，高音质失败会自动降级</div>
+                    </div>
+                    <el-select v-model="settingsStore.quality" placeholder="选择音质" style="width: 160px">
+                        <el-option label="标准音质 (128k)" value="standard">
+                            <span>标准音质</span>
+                            <span
+                                style="color: var(--el-text-color-secondary); font-size: 12px; margin-left: 8px">128kbps</span>
+                        </el-option>
+                        <el-option label="极高音质 (320k)" value="exhigh">
+                            <span>极高音质</span>
+                            <span
+                                style="color: var(--el-text-color-secondary); font-size: 12px; margin-left: 8px">320kbps</span>
+                        </el-option>
+                        <el-option label="无损音质 (FLAC)" value="lossless">
+                            <span>无损音质</span>
+                            <span
+                                style="color: var(--el-text-color-secondary); font-size: 12px; margin-left: 8px">FLAC</span>
+                        </el-option>
+                        <el-option label="Hi-Res音质" value="hires">
+                            <span>Hi-Res音质</span>
+                            <span
+                                style="color: var(--el-text-color-secondary); font-size: 12px; margin-left: 8px">24bit/96kHz</span>
+                        </el-option>
+                        <el-option label="高清环绕声" value="jyeffect">
+                            <span>高清环绕声</span>
+                        </el-option>
+                        <el-option label="沉浸环绕声" value="sky">
+                            <span>沉浸环绕声</span>
+                        </el-option>
+                        <el-option label="超清母带" value="jymaster">
+                            <span>超清母带</span>
+                        </el-option>
+                    </el-select>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
                         <div class="setting-title">播放列表</div>
                         <div class="setting-desc">当前列表 {{ playerStore.playlist.length }} 首歌曲</div>
                     </div>
@@ -70,11 +107,13 @@ import { ElMessage } from "element-plus";
 import { usePlayerStore } from "@/stores/player";
 import { useThemeStore } from "@/stores/theme";
 import { useCacheStore } from "@/stores/cache";
+import { useSettingsStore } from "@/stores/settings";
 
 const router = useRouter();
 const playerStore = usePlayerStore();
 const themeStore = useThemeStore();
 const cacheStore = useCacheStore();
+const settingsStore = useSettingsStore();
 
 const goBack = () => {
     router.push("/");

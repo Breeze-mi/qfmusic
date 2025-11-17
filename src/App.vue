@@ -1,6 +1,10 @@
 <template>
   <div class="app-container">
-    <router-view></router-view>
+    <router-view v-slot="{ Component }">
+      <transition name="fade" mode="out-in">
+        <component :is="Component" />
+      </transition>
+    </router-view>
 
     <!-- 全局播放控制栏 -->
     <PlayerBar />
@@ -26,6 +30,22 @@ import PlaylistDrawer from "@/components/PlaylistDrawer.vue";
 /* 为整个应用设置最小宽度 */
 body {
   min-width: 600px;
+}
+
+/* 页面切换动画 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.fade-enter-from {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+.fade-leave-to {
+  opacity: 0;
+  transform: translateX(-20px);
 }
 
 /* 全局样式：播放列表抽屉宽度限制 */

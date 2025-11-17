@@ -19,37 +19,68 @@
             <div v-if="searchStore.showResults" class="search-results-container">
                 <div class="results-header">
                     <h2>搜索结果</h2>
-                    <!-- <span class="results-count">找到 {{ searchStore.searchResults.length }} 首歌曲</span> -->
+                    <span class="results-count">
+                        共 {{ searchStore.total }} 首歌曲
+                        <span v-if="searchStore.totalPages > 1" class="page-info">
+                            <!-- （第 {{ searchStore.currentPage }}/{{ searchStore.totalPages }} 页） -->
+                        </span>
+                    </span>
                 </div>
-                <div class="results-table">
-                    <div class="table-header">
-                        <div class="col-index">#</div>
-                        <div class="col-name">歌曲名</div>
-                        <div class="col-artist">艺术家</div>
-                        <div class="col-album">专辑名</div>
-                        <div class="col-actions">操作</div>
-                    </div>
-                    <div class="table-body">
-                        <div v-for="(song, index) in searchStore.searchResults" :key="song.id" class="table-row"
-                            @dblclick="handlePlaySong(song)"
-                            :class="{ 'is-playing': playerStore.currentSong?.id === song.id }">
-                            <div class="col-index">
-                                <span v-if="playerStore.currentSong?.id !== song.id">{{ index + 1 }}</span>
-                                <el-icon v-else class="playing-icon">
-                                    <VideoPlay />
-                                </el-icon>
-                            </div>
-                            <div class="col-name">
-                                <span class="song-name">{{ song.name }}</span>
-                            </div>
-                            <div class="col-artist">{{ song.artists }}</div>
-                            <div class="col-album">{{ song.album }}</div>
-                            <div class="col-actions">
-                                <el-button text :icon="VideoPlay" @click.stop="handlePlaySong(song)" title="播放" />
-                                <el-button text :icon="Plus" @click.stop="handleAddToPlaylist(song)" title="添加到播放列表" />
-                                <el-button text :icon="Download" title="下载" />
+
+                <!-- 无结果提示 -->
+                <div v-if="searchStore.total === 0" class="no-results">
+                    <el-empty description="未找到相关歌曲">
+                        <template #image>
+                            <div class="empty-icon">🔍</div>
+                        </template>
+                        <template #description>
+                            <p>未找到相关歌曲</p>
+                            <p class="empty-tip">请尝试其他关键词或检查输入是否正确</p>
+                        </template>
+                    </el-empty>
+                </div>
+
+                <div v-else class="results-wrapper">
+                    <div class="results-table">
+                        <div class="table-header">
+                            <div class="col-index">#</div>
+                            <div class="col-name">歌曲名</div>
+                            <div class="col-artist">艺术家</div>
+                            <div class="col-album">专辑名</div>
+                            <div class="col-actions">操作</div>
+                        </div>
+                        <div class="table-body">
+                            <div v-for="(song, index) in searchStore.searchResults" :key="song.id" class="table-row"
+                                @dblclick="handlePlaySong(song)"
+                                :class="{ 'is-playing': playerStore.currentSong?.id === song.id }">
+                                <div class="col-index">
+                                    <span v-if="playerStore.currentSong?.id !== song.id">
+                                        {{ (searchStore.currentPage - 1) * searchStore.pageSize + index + 1 }}
+                                    </span>
+                                    <el-icon v-else class="playing-icon">
+                                        <VideoPlay />
+                                    </el-icon>
+                                </div>
+                                <div class="col-name">
+                                    <span class="song-name">{{ song.name }}</span>
+                                </div>
+                                <div class="col-artist">{{ song.artists }}</div>
+                                <div class="col-album">{{ song.album }}</div>
+                                <div class="col-actions">
+                                    <el-button text :icon="VideoPlay" @click.stop="handlePlaySong(song)" title="播放" />
+                                    <el-button text :icon="Plus" @click.stop="handleAddToPlaylist(song)"
+                                        title="添加到播放列表" />
+                                    <el-button text :icon="Download" title="下载" />
+                                </div>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- 分页组件 -->
+                    <div v-if="searchStore.totalPages > 1" class="pagination">
+                        <el-pagination v-model:current-page="searchStore.currentPage" :page-size="searchStore.pageSize"
+                            :total="searchStore.total" layout="prev, pager, next" :hide-on-single-page="false"
+                            @current-change="handlePageChange" />
                     </div>
                 </div>
             </div>
@@ -95,6 +126,12 @@ const goToSettings = () => {
     router.push("/settings");
 };
 
+const handlePageChange = (page: number) => {
+    searchStore.setCurrentPage(page);
+    // 滚动到顶部
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+
 const handlePlaySong = (song: Song) => {
     playerStore.playSong(song);
     ElMessage.success(`开始播放：${song.name}`);
@@ -107,13 +144,6 @@ const handleAddToPlaylist = (song: Song) => {
     } else {
         ElMessage.info(`歌曲已在播放列表中：${song.name}`);
     }
-};
-
-const formatDuration = (duration?: number) => {
-    if (!duration) return "--:--";
-    const minutes = Math.floor(duration / 60000);
-    const seconds = Math.floor((duration % 60000) / 1000);
-    return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
 };
 
 onMounted(() => {
@@ -182,12 +212,26 @@ onMounted(() => {
                 .results-count {
                     font-size: 14px;
                     color: var(--el-text-color-secondary);
+
+                    .page-info {
+                        margin-left: 8px;
+                        color: var(--el-color-primary);
+                    }
                 }
+            }
+
+            .results-wrapper {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
             }
 
             .results-table {
                 flex: 1;
-                overflow-y: auto;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
                 border-radius: 4px;
                 position: relative;
 
@@ -233,7 +277,8 @@ onMounted(() => {
                 }
 
                 .table-body {
-                    // 移除 flex 和 overflow，让父容器处理滚动
+                    flex: 1;
+                    overflow-y: auto;
 
                     .table-row {
                         display: flex;
@@ -319,6 +364,58 @@ onMounted(() => {
                         }
                     }
                 }
+            }
+        }
+
+        .pagination {
+            padding: 20px 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-shrink: 0;
+
+            :deep(.el-pagination) {
+
+                .btn-prev,
+                .btn-next,
+                .el-pager li {
+                    background: transparent;
+                    min-width: 32px;
+                    height: 32px;
+                    line-height: 32px;
+                    border-radius: 4px;
+
+                    &:hover {
+                        background: var(--el-fill-color-light);
+                    }
+                }
+
+                .el-pager li.is-active {
+                    background: var(--el-color-primary);
+                    color: #fff;
+
+                    &:hover {
+                        background: var(--el-color-primary);
+                    }
+                }
+            }
+        }
+
+        .no-results {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 24px;
+
+            .empty-icon {
+                font-size: 80px;
+            }
+
+            .empty-tip {
+                margin-top: 8px;
+                font-size: 13px;
+                color: var(--el-text-color-placeholder);
             }
         }
 
