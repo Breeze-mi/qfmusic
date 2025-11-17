@@ -6,8 +6,10 @@
                 <h1>🎵 音乐播放器</h1>
             </div>
             <SearchBar />
-            <div class="theme-toggle">
-                <el-button circle :icon="themeStore.isDark ? Sunny : Moon" @click="themeStore.toggleTheme" />
+            <div class="actions">
+                <el-button circle :icon="Setting" @click="goToSettings" title="设置" />
+                <el-button circle :icon="themeStore.isDark ? Sunny : Moon" @click="themeStore.toggleTheme"
+                    title="切换主题" />
             </div>
         </div>
 
@@ -72,34 +74,28 @@
                 </div>
             </div>
         </div>
-
-        <!-- 播放控制栏 -->
-        <PlayerBar />
-
-        <!-- 播放列表抽屉 -->
-        <PlaylistDrawer />
-
-        <!-- 歌曲详情页 -->
-        <SongDetail />
     </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted } from "vue";
-import { Sunny, Moon, VideoPlay, Plus, Download } from "@element-plus/icons-vue";
+import { useRouter } from "vue-router";
+import { Sunny, Moon, VideoPlay, Plus, Download, Setting } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import SearchBar from "@/components/SearchBar.vue";
-import PlayerBar from "@/components/PlayerBar.vue";
-import PlaylistDrawer from "@/components/PlaylistDrawer.vue";
-import SongDetail from "@/components/SongDetail.vue";
 import { usePlayerStore } from "@/stores/player";
 import { useThemeStore } from "@/stores/theme";
 import { useSearchStore } from "@/stores/search";
 import type { Song } from "@/api/music";
 
+const router = useRouter();
 const playerStore = usePlayerStore();
 const themeStore = useThemeStore();
 const searchStore = useSearchStore();
+
+const goToSettings = () => {
+    router.push("/settings");
+};
 
 const handlePlaySong = (song: Song) => {
     playerStore.playSong(song);
@@ -107,8 +103,12 @@ const handlePlaySong = (song: Song) => {
 };
 
 const handleAddToPlaylist = (song: Song) => {
-    playerStore.addToPlaylist(song);
-    ElMessage.success("已添加到播放列表");
+    const added = playerStore.addToPlaylist(song);
+    if (added) {
+        ElMessage.success(`已添加到播放列表：${song.name}`);
+    } else {
+        ElMessage.info(`歌曲已在播放列表中：${song.name}`);
+    }
 };
 
 const formatDuration = (duration?: number) => {
@@ -147,6 +147,11 @@ onMounted(() => {
                 white-space: nowrap;
             }
         }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
     }
 
     .main-content {
@@ -156,7 +161,9 @@ onMounted(() => {
 
         .search-results-container {
             padding: 24px;
-            min-height: calc(100vh - 70px - 60px);
+            height: calc(100vh - 70px - 60px);
+            display: flex;
+            flex-direction: column;
 
             .results-header {
                 display: flex;
@@ -165,6 +172,7 @@ onMounted(() => {
                 margin-bottom: 16px;
                 padding-bottom: 12px;
                 border-bottom: 1px solid var(--el-border-color);
+                flex-shrink: 0;
 
                 h2 {
                     margin: 0;
@@ -180,16 +188,23 @@ onMounted(() => {
             }
 
             .results-table {
+                flex: 1;
+                overflow-y: auto;
+                border-radius: 4px;
+                position: relative;
+
                 .table-header {
                     display: flex;
                     align-items: center;
                     padding: 12px 16px;
                     background: var(--el-fill-color-light);
-                    border-radius: 4px;
                     font-size: 13px;
                     font-weight: 600;
                     color: var(--el-text-color-secondary);
-                    margin-bottom: 4px;
+                    position: sticky;
+                    top: 0;
+                    z-index: 10;
+                    border-radius: 4px 4px 0 0;
 
                     .col-index {
                         width: 50px;
@@ -221,6 +236,8 @@ onMounted(() => {
                 }
 
                 .table-body {
+                    // 移除 flex 和 overflow，让父容器处理滚动
+
                     .table-row {
                         display: flex;
                         align-items: center;

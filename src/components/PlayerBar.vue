@@ -3,8 +3,7 @@
         <!-- 左侧：歌曲信息 -->
         <div class="song-info" @click="playerStore.toggleDetail">
             <div v-if="playerStore.currentSong" class="song-cover-wrapper">
-                <img :src="playerStore.currentSong.picUrl" :alt="playerStore.currentSong.name" class="song-cover"
-                    :class="{ rotating: playerStore.isPlaying }" />
+                <img :src="playerStore.currentSong.picUrl" :alt="playerStore.currentSong.name" class="song-cover" />
             </div>
             <div v-if="playerStore.currentSong" class="song-details">
                 <div class="song-name">{{ playerStore.currentSong.name }}</div>
@@ -18,14 +17,14 @@
                 <el-button circle :icon="playModeIcon" @click="playerStore.togglePlayMode" :title="playModeText" />
                 <el-button circle :icon="DArrowLeft" @click="playerStore.playPrev" />
                 <el-button circle size="large" type="primary" :icon="playerStore.isPlaying ? VideoPause : VideoPlay"
-                    @click="playerStore.togglePlay" :class="{ 'is-playing': playerStore.isPlaying }" />
+                    @click="handleTogglePlay" :class="{ 'is-playing': playerStore.isPlaying }" />
                 <el-button circle :icon="DArrowRight" @click="playerStore.playNext" />
                 <el-button circle :icon="volumeIcon" @click="toggleMute" />
             </div>
             <div class="progress-bar">
-                <span class="time">{{ formatTime(playerStore.currentTime) }}</span>
+                <span class="time">{{ formatTime(isDragging ? draggingTime : playerStore.currentTime) }}</span>
                 <el-slider v-model="progressValue" :show-tooltip="false" @change="handleProgressChange"
-                    @input="handleProgressInput" />
+                    @input="handleProgressInput" class="progress-slider" />
                 <span class="time">{{ formatTime(playerStore.duration) }}</span>
             </div>
         </div>
@@ -39,8 +38,10 @@
         </div>
 
         <!-- 音频元素 -->
-        <audio ref="audioRef" @timeupdate="handleTimeUpdate" @loadedmetadata="handleLoadedMetadata"
-            @ended="handleEnded" />
+        <audio ref="audioRef" @timeupdate="handleTimeUpdate" @loadedmetadata="handleLoadedMetadata" @ended="handleEnded"
+            @pause="handlePause" @play="handlePlay" @playing="handlePlaying" @error="handleError"
+            @waiting="handleWaiting" @stalled="handleStalled" @canplay="handleCanPlay" @canplaythrough="handleCanPlay"
+            preload="metadata" />
     </div>
 </template>
 
@@ -59,15 +60,27 @@ import {
     Microphone,
 } from "@element-plus/icons-vue";
 import { usePlayerStore, PlayMode } from "@/stores/player";
+import { useCacheStore } from "@/stores/cache";
 import MusicApi from "@/api/music";
+import type { SongDetail } from "@/api/music";
 import { ElMessage } from "element-plus";
 
 const playerStore = usePlayerStore();
+const cacheStore = useCacheStore();
 const audioRef = ref<HTMLAudioElement>();
 
 const progressValue = ref(0);
 const volumeValue = ref(playerStore.volume * 100);
 const isMuted = ref(false);
+
+// 用于防止重复恢复播放
+const isRecovering = ref(false);
+// 用于标记用户主动操作
+const userAction = ref(false);
+// 是否正在拖动进度条
+const isDragging = ref(false);
+// 拖动时的预览时间
+const draggingTime = ref(0);
 
 // 播放模式图标
 const playModeIcon = computed(() => {
@@ -115,21 +128,59 @@ watch(
     async (newSong) => {
         if (newSong && audioRef.value) {
             try {
-                const { data } = await MusicApi.getSong(newSong.id);
-                if (data.value?.success) {
-                    const songDetail = data.value.data;
-                    playerStore.setCurrentSongDetail(songDetail);
-                    audioRef.value.src = songDetail.url;
-                    // 等待音频加载完成后再播放
-                    await audioRef.value.load();
-                    if (playerStore.isPlaying) {
-                        await audioRef.value.play().catch(err => {
-                            console.error("播放失败:", err);
-                            ElMessage.error("播放失败，请重试");
-                        });
-                    }
+                // 先检查缓存
+                let songDetail = cacheStore.getCachedSong(newSong.id);
+
+                if (songDetail) {
+                    console.log(`使用缓存的歌曲: ${newSong.name}`);
                 } else {
-                    ElMessage.error("获取歌曲失败");
+                    console.log(`请求API获取歌曲: ${newSong.name}`);
+                    const { data } = await MusicApi.getSong(newSong.id);
+                    if (data.value?.success) {
+                        songDetail = data.value.data;
+                        // 缓存歌曲详情
+                        cacheStore.setCachedSong(newSong.id, songDetail);
+                    } else {
+                        ElMessage.error("获取歌曲失败");
+                        return;
+                    }
+                }
+
+                // 确保songDetail存在后再使用
+                if (!songDetail) {
+                    ElMessage.error("歌曲详情获取失败");
+                    return;
+                }
+
+                playerStore.setCurrentSongDetail(songDetail as SongDetail);
+
+                // 检查音频 URL 是否有效
+                if (!songDetail.url || songDetail.url.trim() === '') {
+                    ElMessage.error("音频链接无效");
+                    return;
+                }
+
+                // 重置音频元素
+                audioRef.value.pause();
+                audioRef.value.currentTime = 0;
+                audioRef.value.src = songDetail.url;
+
+                // 等待音频加载完成后再播放
+                audioRef.value.load();
+
+                if (playerStore.isPlaying) {
+                    // 等待一小段时间确保音频已开始加载
+                    setTimeout(async () => {
+                        try {
+                            if (audioRef.value && audioRef.value.readyState >= 2) {
+                                await audioRef.value.play();
+                            }
+                        } catch (err) {
+                            console.error("播放失败:", err);
+                            ElMessage.error("音频加载失败，请重试");
+                            playerStore.isPlaying = false;
+                        }
+                    }, 100);
                 }
             } catch (error) {
                 console.error("加载歌曲失败:", error);
@@ -146,11 +197,21 @@ watch(
         if (audioRef.value && audioRef.value.src) {
             if (playing) {
                 try {
-                    await audioRef.value.play();
+                    // 确保音频已加载
+                    if (audioRef.value.readyState >= 2) {
+                        console.log("尝试播放音频，readyState:", audioRef.value.readyState);
+                        await audioRef.value.play();
+                    } else {
+                        console.log("音频未准备好，readyState:", audioRef.value.readyState);
+                        // 音频未准备好，等待 canplay 事件
+                    }
                 } catch (err) {
                     console.error("播放失败:", err);
+                    // 播放失败时，同步状态
+                    playerStore.isPlaying = false;
                 }
             } else {
+                userAction.value = true;
                 audioRef.value.pause();
             }
         }
@@ -167,8 +228,21 @@ watch(
     }
 );
 
-// 是否正在拖动进度条
-const isDragging = ref(false);
+// 监听currentTime变化（用于单曲循环）
+watch(
+    () => playerStore.currentTime,
+    (newTime) => {
+        // 如果store的时间被重置为0，且音频当前时间不是0，说明是单曲循环
+        if (newTime === 0 && audioRef.value && audioRef.value.currentTime > 0.1) {
+            audioRef.value.currentTime = 0;
+            if (playerStore.isPlaying) {
+                audioRef.value.play().catch(err => {
+                    console.error("单曲循环播放失败:", err);
+                });
+            }
+        }
+    }
+);
 
 // 时间更新
 const handleTimeUpdate = () => {
@@ -194,6 +268,10 @@ const handleEnded = () => {
 const handleProgressInput = (value: number) => {
     isDragging.value = true;
     progressValue.value = value;
+    // 计算拖动时的预览时间
+    if (playerStore.duration > 0) {
+        draggingTime.value = (value / 100) * playerStore.duration;
+    }
 };
 
 // 进度条变化完成
@@ -204,6 +282,7 @@ const handleProgressChange = (value: number) => {
         playerStore.setCurrentTime(newTime);
     }
     isDragging.value = false;
+    draggingTime.value = 0;
 };
 
 // 音量变化
@@ -219,6 +298,75 @@ const toggleMute = () => {
         audioRef.value.muted = isMuted.value;
     }
 };
+
+// 处理播放/暂停按钮点击
+const handleTogglePlay = () => {
+    userAction.value = true;
+    playerStore.togglePlay();
+};
+
+// 音频暂停事件
+const handlePause = () => {
+    // 如果是用户主动操作或正在拖动进度条，不做处理
+    if (userAction.value || isDragging.value) {
+        userAction.value = false;
+        return;
+    }
+
+    // 其他情况下，如果音频暂停了，同步状态
+    console.log("音频暂停");
+};
+
+// 音频播放事件
+const handlePlay = () => {
+    console.log("音频开始播放");
+};
+
+// 音频错误事件
+const handleError = (e: Event) => {
+    console.error("音频加载错误:", e);
+    const target = e.target as HTMLAudioElement;
+    if (target && target.error) {
+        console.error("音频错误代码:", target.error.code);
+        console.error("音频错误信息:", target.error.message);
+    }
+
+    // 重置播放状态
+    playerStore.isPlaying = false;
+    ElMessage.error("音频加载失败，请检查网络连接或尝试其他歌曲");
+};
+
+// 音频缓冲中
+const handleWaiting = () => {
+    console.log("音频缓冲中...");
+};
+
+// 音频可以播放
+const handleCanPlay = () => {
+    console.log("音频已准备好播放");
+    // 如果应该播放但当前是暂停状态，尝试播放
+    if (playerStore.isPlaying && audioRef.value && audioRef.value.paused && !isRecovering.value) {
+        isRecovering.value = true;
+        audioRef.value.play().catch(err => {
+            console.error("自动播放失败:", err);
+            // 播放失败，同步状态
+            playerStore.isPlaying = false;
+        }).finally(() => {
+            isRecovering.value = false;
+        });
+    }
+};
+
+// 音频停滞事件
+const handleStalled = () => {
+    console.log("音频加载停滞");
+};
+
+// 音频暂停后恢复
+const handlePlaying = () => {
+    console.log("音频正在播放");
+    isRecovering.value = false;
+};
 </script>
 
 <style scoped lang="scss">
@@ -228,25 +376,26 @@ const toggleMute = () => {
     left: 0;
     right: 0;
     height: 70px;
+    min-width: 600px;
     background: var(--el-bg-color);
     border-top: 1px solid var(--el-border-color);
     display: flex;
     align-items: center;
-    padding: 0 16px;
-    gap: 16px;
+    padding: 0 12px;
+    gap: 12px;
     z-index: 1000;
 
     .song-info {
         display: flex;
         align-items: center;
-        gap: 12px;
-        width: 280px;
+        gap: 10px;
+        width: 200px;
         flex-shrink: 0;
         cursor: pointer;
 
         .song-cover-wrapper {
-            width: 50px;
-            height: 50px;
+            width: 45px;
+            height: 45px;
             border-radius: 4px;
             overflow: hidden;
             flex-shrink: 0;
@@ -256,10 +405,6 @@ const toggleMute = () => {
                 width: 100%;
                 height: 100%;
                 object-fit: cover;
-
-                &.rotating {
-                    animation: rotate 20s linear infinite;
-                }
             }
         }
 
@@ -316,10 +461,34 @@ const toggleMute = () => {
                 color: var(--el-text-color-secondary);
                 min-width: 42px;
                 text-align: center;
+                user-select: none;
             }
 
-            .el-slider {
+            .progress-slider {
                 flex: 1;
+
+                // 移除所有 pointer 手势，使用默认光标
+                :deep(.el-slider__runway) {
+                    cursor: default !important;
+                }
+
+                :deep(.el-slider__bar) {
+                    cursor: default !important;
+                }
+
+                :deep(.el-slider__button-wrapper) {
+                    cursor: default !important;
+                }
+
+                :deep(.el-slider__button) {
+                    cursor: default !important;
+                    transition: transform 0.2s;
+                }
+
+                // 滑块悬停时的缩放效果
+                :deep(.el-slider__button-wrapper:hover .el-slider__button) {
+                    transform: scale(1.2);
+                }
             }
         }
     }
@@ -328,23 +497,37 @@ const toggleMute = () => {
         display: flex;
         align-items: center;
         gap: 8px;
-        width: 200px;
+        min-width: 120px;
         flex-shrink: 0;
         justify-content: flex-end;
 
         .volume-control {
-            width: 100px;
+            width: 80px;
+            min-width: 60px;
+
+            // 移除所有 pointer 手势，使用默认光标
+            :deep(.el-slider__runway) {
+                cursor: default !important;
+            }
+
+            :deep(.el-slider__bar) {
+                cursor: default !important;
+            }
+
+            :deep(.el-slider__button-wrapper) {
+                cursor: default !important;
+            }
+
+            :deep(.el-slider__button) {
+                cursor: default !important;
+                transition: transform 0.2s;
+            }
+
+            // 滑块悬停时的缩放效果
+            :deep(.el-slider__button-wrapper:hover .el-slider__button) {
+                transform: scale(1.2);
+            }
         }
-    }
-}
-
-@keyframes rotate {
-    from {
-        transform: rotate(0deg);
-    }
-
-    to {
-        transform: rotate(360deg);
     }
 }
 

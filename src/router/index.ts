@@ -1,19 +1,23 @@
-import { createRouter, createWebHistory } from "vue-router";
-import type { RouteRecordRaw } from "vue-router";
+import { createRouter, createWebHashHistory } from "vue-router";
+import Home from "@/views/Home.vue";
+import Settings from "@/views/Settings.vue";
 
-// import DefaultLayout from "../layouts/DefaultLayout.vue";
-
-const routes: RouteRecordRaw[] = [
-	{
-		path: "/",
-		name: "Home",
-		component: () => import("@/views/Home.vue"),
-	},
+const routes = [
+  {
+    path: "/",
+    name: "Home",
+    component: Home,
+  },
+  {
+    path: "/settings",
+    name: "Settings",
+    component: Settings,
+  },
 ];
 
 const router = createRouter({
-	history: createWebHistory(),
-	routes,
+  history: createWebHashHistory(),
+  routes,
 });
 
 export default router;

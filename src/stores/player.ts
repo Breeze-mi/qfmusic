@@ -45,11 +45,18 @@ export const usePlayerStore = defineStore("player", () => {
     return (currentTime.value / duration.value) * 100;
   });
 
-  // 添加歌曲到播放列表
+  // 添加歌曲到播放列表（不播放）
   const addToPlaylist = (song: Song) => {
     const index = playlist.value.findIndex((s) => s.id === song.id);
     if (index === -1) {
       playlist.value.push(song);
+      console.log(
+        `添加歌曲到播放列表: ${song.name}, 当前列表长度: ${playlist.value.length}`
+      );
+      return true;
+    } else {
+      console.log(`歌曲已在播放列表中: ${song.name}`);
+      return false;
     }
   };
 
@@ -57,10 +64,16 @@ export const usePlayerStore = defineStore("player", () => {
   const playSong = (song: Song) => {
     const index = playlist.value.findIndex((s) => s.id === song.id);
     if (index === -1) {
+      // 歌曲不在播放列表中，添加到列表末尾
       playlist.value.push(song);
       currentIndex.value = playlist.value.length - 1;
+      console.log(
+        `添加歌曲到播放列表: ${song.name}, 当前列表长度: ${playlist.value.length}`
+      );
     } else {
+      // 歌曲已在播放列表中，直接切换到该歌曲
       currentIndex.value = index;
+      console.log(`切换到播放列表中的歌曲: ${song.name}, 索引: ${index}`);
     }
     isPlaying.value = true;
   };
@@ -90,13 +103,9 @@ export const usePlayerStore = defineStore("player", () => {
     if (playlist.value.length === 0) return;
 
     if (playMode.value === PlayMode.LOOP) {
-      // 单曲循环，触发重新加载
-      const temp = currentIndex.value;
-      currentIndex.value = -1;
-      setTimeout(() => {
-        currentIndex.value = temp;
-        isPlaying.value = true;
-      }, 10);
+      // 单曲循环，重置播放时间即可，不需要重新加载
+      currentTime.value = 0;
+      isPlaying.value = true;
       return;
     }
 
@@ -120,9 +129,23 @@ export const usePlayerStore = defineStore("player", () => {
 
   // 从播放列表删除歌曲
   const removeFromPlaylist = (index: number) => {
+    // 如果删除的是当前播放的歌曲
     if (index === currentIndex.value) {
-      playNext();
+      // 如果列表只有一首歌，清空状态
+      if (playlist.value.length === 1) {
+        playlist.value = [];
+        currentIndex.value = -1;
+        isPlaying.value = false;
+        currentSongDetail.value = null;
+        return;
+      }
+      // 如果删除的是最后一首，播放第一首
+      if (index === playlist.value.length - 1) {
+        currentIndex.value = 0;
+      }
+      // 否则保持当前索引，会自动播放下一首
     } else if (index < currentIndex.value) {
+      // 如果删除的歌曲在当前播放歌曲之前，索引需要减1
       currentIndex.value--;
     }
     playlist.value.splice(index, 1);
