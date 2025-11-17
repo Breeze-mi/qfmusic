@@ -47,7 +47,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import {
     VideoPlay,
@@ -256,7 +256,8 @@ watch(
                 ElMessage.error("加载歌曲失败");
             }
         }
-    }
+    },
+    { immediate: true } // 立即执行，处理刷新后的初始状态
 );
 
 // 监听播放状态
@@ -445,6 +446,97 @@ const handlePlaying = () => {
     console.log("音频正在播放");
     isRecovering.value = false;
 };
+
+// 组件挂载后，如果有当前歌曲但没有歌曲详情，则加载
+onMounted(async () => {
+    console.log("PlayerBar mounted");
+
+    // 检查是否有当前歌曲但没有加载详情
+    if (playerStore.currentSong && !playerStore.currentSongDetail && audioRef.value) {
+        console.log("检测到刷新后的歌曲，开始加载:", playerStore.currentSong.name);
+
+        try {
+            const song = playerStore.currentSong;
+            let songDetail = cacheStore.getCachedSong(song.id);
+
+            if (!songDetail) {
+                console.log(`从API获取歌曲详情: ${song.name}`);
+
+                // 音质降级逻辑
+                const qualityLevels = [
+                    "jymaster", "sky", "jyeffect", "hires",
+                    "lossless", "exhigh", "standard"
+                ];
+
+                const qualityNames: Record<string, string> = {
+                    jymaster: "超清母带", sky: "沉浸环绕声", jyeffect: "高清环绕声",
+                    hires: "Hi-Res", lossless: "无损", exhigh: "极高", standard: "标准"
+                };
+
+                let currentQualityIndex = qualityLevels.indexOf(settingsStore.quality);
+                if (currentQualityIndex === -1) {
+                    currentQualityIndex = qualityLevels.indexOf("lossless");
+                }
+
+                while (currentQualityIndex < qualityLevels.length) {
+                    try {
+                        const { data } = await MusicApi.getSong(song.id, qualityLevels[currentQualityIndex]);
+                        if (data.value?.success && data.value.data?.url) {
+                            songDetail = data.value.data;
+
+                            if (currentQualityIndex > qualityLevels.indexOf(settingsStore.quality)) {
+                                const originalQuality = settingsStore.quality;
+                                const currentQuality = qualityLevels[currentQualityIndex];
+                                ElMessage.warning(
+                                    `${qualityNames[originalQuality]}音质不可用，已降级到${qualityNames[currentQuality]}音质`
+                                );
+                            }
+
+                            cacheStore.setCachedSong(song.id, songDetail);
+                            break;
+                        }
+                    } catch (err) {
+                        console.error(`获取${qualityNames[qualityLevels[currentQualityIndex]]}音质失败:`, err);
+                    }
+                    currentQualityIndex++;
+                }
+            }
+
+            if (songDetail) {
+                console.log("歌曲详情加载成功，设置音频源");
+                playerStore.setCurrentSongDetail(songDetail);
+
+                // 设置音频源
+                audioRef.value.pause();
+                audioRef.value.src = songDetail.url;
+                audioRef.value.load();
+
+                // 恢复播放进度
+                const savedTime = playerStore.getSavedProgress(song.id);
+                if (savedTime > 0) {
+                    console.log(`恢复播放进度: ${savedTime.toFixed(2)}秒`);
+                    // 等待音频加载完成后设置进度
+                    audioRef.value.addEventListener('loadedmetadata', () => {
+                        if (audioRef.value) {
+                            audioRef.value.currentTime = savedTime;
+                            playerStore.setCurrentTime(savedTime);
+                        }
+                    }, { once: true });
+                } else {
+                    audioRef.value.currentTime = 0;
+                }
+
+                console.log("音频源已设置，等待用户点击播放");
+            } else {
+                console.error("无法获取歌曲详情");
+                ElMessage.error("无法加载歌曲，请尝试切换歌曲");
+            }
+        } catch (error) {
+            console.error("加载歌曲失败:", error);
+            ElMessage.error("加载歌曲失败");
+        }
+    }
+});
 </script>
 
 <style scoped lang="scss">

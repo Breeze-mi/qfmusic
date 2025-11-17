@@ -1,22 +1,49 @@
 import { defineStore } from "pinia";
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import type { Song } from "@/api/music";
+import { persist } from "@/utils/persist";
+
+const STORAGE_KEY = "music-search-state";
 
 export const useSearchStore = defineStore("search", () => {
+  // 从 localStorage 加载保存的状态
+  const savedState = persist.load(STORAGE_KEY, {
+    keyword: "",
+    allResults: [],
+    showResults: false,
+    currentPage: 1,
+    total: 0,
+  });
+
   // 搜索关键词
-  const keyword = ref("");
+  const keyword = ref(savedState.keyword);
   // 所有搜索结果
-  const allResults = ref<Song[]>([]);
+  const allResults = ref<Song[]>(savedState.allResults);
   // 是否正在搜索
   const searching = ref(false);
   // 是否显示搜索结果
-  const showResults = ref(false);
+  const showResults = ref(savedState.showResults);
   // 当前页码
-  const currentPage = ref(1);
+  const currentPage = ref(savedState.currentPage);
   // 每页显示数量
   const pageSize = ref(30);
   // 总结果数
-  const total = ref(0);
+  const total = ref(savedState.total);
+
+  // 监听状态变化，自动保存
+  watch(
+    [keyword, allResults, showResults, currentPage, total],
+    () => {
+      persist.save(STORAGE_KEY, {
+        keyword: keyword.value,
+        allResults: allResults.value,
+        showResults: showResults.value,
+        currentPage: currentPage.value,
+        total: total.value,
+      });
+    },
+    { deep: true }
+  );
 
   // 当前页的搜索结果
   const searchResults = computed(() => {

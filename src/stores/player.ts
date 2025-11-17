@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import type { Song, SongDetail } from "@/api/music";
+import { persist } from "@/utils/persist";
 
 // 播放模式
 export enum PlayMode {
@@ -9,27 +10,57 @@ export enum PlayMode {
   LOOP = "loop", // 单曲循环
 }
 
+const STORAGE_KEY = "music-player-state";
+
 export const usePlayerStore = defineStore("player", () => {
+  // 从 localStorage 加载保存的状态
+  const savedState = persist.load(STORAGE_KEY, {
+    playlist: [],
+    currentIndex: -1,
+    playMode: PlayMode.SEQUENCE,
+    volume: 0.7,
+    savedProgress: {}, // 保存每首歌的播放进度 { songId: currentTime }
+  });
+
   // 播放列表
-  const playlist = ref<Song[]>([]);
+  const playlist = ref<Song[]>(savedState.playlist);
   // 当前播放索引
-  const currentIndex = ref(-1);
-  // 是否正在播放
+  const currentIndex = ref(savedState.currentIndex);
+  // 是否正在播放（刷新后不自动播放）
   const isPlaying = ref(false);
   // 播放模式
-  const playMode = ref<PlayMode>(PlayMode.SEQUENCE);
+  const playMode = ref<PlayMode>(savedState.playMode);
   // 当前歌曲详情
   const currentSongDetail = ref<SongDetail | null>(null);
   // 音量 (0-1)
-  const volume = ref(0.7);
+  const volume = ref(savedState.volume);
   // 当前播放时间
   const currentTime = ref(0);
   // 歌曲总时长
   const duration = ref(0);
+  // 保存的播放进度
+  const savedProgress = ref<Record<string, number>>(
+    savedState.savedProgress || {}
+  );
   // 是否显示播放列表
   const showPlaylist = ref(false);
   // 是否显示歌曲详情页
   const showDetail = ref(false);
+
+  // 监听状态变化，自动保存
+  watch(
+    [playlist, currentIndex, playMode, volume, savedProgress],
+    () => {
+      persist.save(STORAGE_KEY, {
+        playlist: playlist.value,
+        currentIndex: currentIndex.value,
+        playMode: playMode.value,
+        volume: volume.value,
+        savedProgress: savedProgress.value,
+      });
+    },
+    { deep: true }
+  );
 
   // 当前播放歌曲
   const currentSong = computed(() => {
@@ -172,11 +203,26 @@ export const usePlayerStore = defineStore("player", () => {
   // 设置当前播放时间
   const setCurrentTime = (time: number) => {
     currentTime.value = time;
+
+    // 保存当前歌曲的播放进度（每2秒保存一次，避免频繁写入）
+    if (currentSong.value && time > 0 && Math.floor(time) % 2 === 0) {
+      savedProgress.value[currentSong.value.id] = time;
+    }
   };
 
   // 设置歌曲总时长
   const setDuration = (time: number) => {
     duration.value = time;
+  };
+
+  // 获取歌曲的保存进度
+  const getSavedProgress = (songId: string): number => {
+    return savedProgress.value[songId] || 0;
+  };
+
+  // 清除歌曲的保存进度
+  const clearSavedProgress = (songId: string) => {
+    delete savedProgress.value[songId];
   };
 
   // 切换播放列表显示
@@ -217,6 +263,8 @@ export const usePlayerStore = defineStore("player", () => {
     setVolume,
     setCurrentTime,
     setDuration,
+    getSavedProgress,
+    clearSavedProgress,
     togglePlaylist,
     toggleDetail,
   };

@@ -1,6 +1,6 @@
 <template>
     <el-drawer v-model="playerStore.showPlaylist" direction="rtl" :size="380" :show-close="false"
-        class="playlist-drawer" :modal="false">
+        class="playlist-drawer" :modal="false" @click.self="handleClickOutside">
         <template #header>
             <div class="playlist-header">
                 <div class="header-left">
@@ -61,7 +61,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { Delete, VideoPlay, Close, DCaret } from "@element-plus/icons-vue";
 import { usePlayerStore } from "@/stores/player";
 import { ElMessageBox, ElMessage } from "element-plus";
@@ -71,6 +71,42 @@ const playerStore = usePlayerStore();
 // 拖拽相关状态
 const draggedIndex = ref<number | null>(null);
 const dragOverIndex = ref<number | null>(null);
+
+// 点击外部关闭
+const handleClickOutside = (event: MouseEvent) => {
+    const target = event.target as HTMLElement;
+    // 检查点击的是否是遮罩层或drawer外部
+    if (target.classList.contains('el-drawer__container') ||
+        target.classList.contains('el-overlay')) {
+        playerStore.togglePlaylist();
+    }
+};
+
+// 监听全局点击事件
+const handleGlobalClick = (event: MouseEvent) => {
+    if (!playerStore.showPlaylist) return;
+
+    const target = event.target as HTMLElement;
+    const drawer = document.querySelector('.playlist-drawer');
+    const playlistButton = document.querySelector('.player-actions'); // 播放列表按钮所在区域
+
+    // 如果点击的不是drawer内部，也不是播放列表按钮，则关闭
+    if (drawer && !drawer.contains(target) &&
+        playlistButton && !playlistButton.contains(target)) {
+        playerStore.showPlaylist = false;
+    }
+};
+
+onMounted(() => {
+    // 延迟添加监听器，避免立即触发
+    setTimeout(() => {
+        document.addEventListener('click', handleGlobalClick);
+    }, 160);
+});
+
+onUnmounted(() => {
+    document.removeEventListener('click', handleGlobalClick);
+});
 
 const handlePlaySong = (index: number) => {
     playerStore.currentIndex = index;
