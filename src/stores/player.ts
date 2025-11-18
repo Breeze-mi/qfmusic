@@ -204,7 +204,7 @@ export const usePlayerStore = defineStore("player", () => {
   const setCurrentTime = (time: number) => {
     currentTime.value = time;
 
-    // 保存当前歌曲的播放进度（每2秒保存一次，避免频繁写入）
+    // 保存当前歌曲的播放进度（每3秒保存一次，避免频繁写入）
     if (currentSong.value && time > 0 && Math.floor(time) % 2 === 0) {
       savedProgress.value[currentSong.value.id] = time;
     }

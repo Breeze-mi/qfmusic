@@ -331,43 +331,64 @@ watch(
             try {
                 // 检查是否为本地音乐
                 if (localMusicStore.isLocalMusic(newSong.id)) {
-                    const localFile = localMusicStore.getLocalFile(newSong.id);
-                    if (localFile && localFile.fileUrl) {
-                        // 本地音乐直接使用 blob URL
-                        audioRef.value.src = localFile.fileUrl;
-                        audioRef.value.load();
-
-                        // 设置简单的歌曲详情
-                        playerStore.setCurrentSongDetail({
-                            name: localFile.name,
-                            ar_name: localFile.artists,
-                            al_name: localFile.album,
-                            level: "本地",
-                            size: `${(localFile.fileSize / 1024 / 1024).toFixed(2)} MB`,
-                            url: localFile.fileUrl,
-                            pic: "",
-                            lyric: "",
-                        });
-
-                        if (wasPlaying) {
-                            setTimeout(async () => {
-                                try {
-                                    if (audioRef.value && audioRef.value.readyState >= 2) {
-                                        await audioRef.value.play();
-                                    }
-                                } catch (err) {
-                                    console.error("播放失败:", err);
-                                    ElMessage.error("音频加载失败，请重试");
-                                    playerStore.isPlaying = false;
-                                }
-                            }, 100);
-                        }
-                        return;
-                    } else {
-                        // 本地文件不存在
-                        handleSongLoadError("本地音乐文件不存在", false);  // 不清空 src，避免错误
+                    // 按需加载本地音乐文件信息
+                    const localFile = await localMusicStore.getLocalFile(newSong.id);
+                    if (!localFile) {
+                        handleSongLoadError("本地音乐文件不存在", false);
                         return;
                     }
+
+                    // 懒加载：获取音频 URL
+                    const fileUrl = await localMusicStore.getTrackURL(newSong.id);
+
+                    if (!fileUrl) {
+                        handleSongLoadError("无法加载本地音乐文件", false);
+                        return;
+                    }
+
+                    // 本地音乐使用获取的 URL
+                    audioRef.value.src = fileUrl;
+                    audioRef.value.load();
+
+                    // 设置简单的歌曲详情
+                    playerStore.setCurrentSongDetail({
+                        name: localFile.name,
+                        ar_name: localFile.artists,
+                        al_name: localFile.album,
+                        level: "本地",
+                        size: `${(localFile.fileSize / 1024 / 1024).toFixed(2)} MB`,
+                        url: fileUrl,
+                        pic: "",
+                        lyric: "",
+                    });
+
+                    // 当前歌曲加载完成，启动后台加载其他本地音乐
+                    if (!localMusicStore.isInitialized && !localMusicStore.isLoading) {
+                        // 获取播放列表中的本地音乐 ID（优先加载）
+                        const playlistLocalIds = playerStore.playlist
+                            .filter(s => localMusicStore.isLocalMusic(s.id))
+                            .map(s => s.id);
+
+                        // 异步启动后台加载，不阻塞当前播放
+                        setTimeout(() => {
+                            localMusicStore.startBackgroundLoading(playlistLocalIds);
+                        }, 1000); // 延迟 1 秒，确保当前歌曲播放流畅
+                    }
+
+                    if (wasPlaying) {
+                        setTimeout(async () => {
+                            try {
+                                if (audioRef.value && audioRef.value.readyState >= 2) {
+                                    await audioRef.value.play();
+                                }
+                            } catch (err) {
+                                console.error("播放失败:", err);
+                                ElMessage.error("音频加载失败，请重试");
+                                playerStore.isPlaying = false;
+                            }
+                        }, 100);
+                    }
+                    return;
                 }
 
                 // 在线音乐处理逻辑
@@ -681,45 +702,58 @@ onMounted(async () => {
 
             // 检查是否为本地音乐
             if (localMusicStore.isLocalMusic(song.id)) {
-                const localFile = localMusicStore.getLocalFile(song.id);
-                if (localFile && localFile.fileUrl) {
-                    console.log("加载本地音乐:", localFile.name);
-                    audioRef.value.pause();
-                    audioRef.value.src = localFile.fileUrl;
-                    audioRef.value.load();
-
-                    playerStore.setCurrentSongDetail({
-                        name: localFile.name,
-                        ar_name: localFile.artists,
-                        al_name: localFile.album,
-                        level: "本地",
-                        size: `${(localFile.fileSize / 1024 / 1024).toFixed(2)} MB`,
-                        url: localFile.fileUrl,
-                        pic: "",
-                        lyric: "",
-                    });
-
-                    const savedTime = playerStore.getSavedProgress(song.id);
-                    if (savedTime > 0) {
-                        audioRef.value.addEventListener('loadedmetadata', () => {
-                            if (audioRef.value) {
-                                audioRef.value.currentTime = savedTime;
-                                playerStore.setCurrentTime(savedTime);
-                            }
-                        }, { once: true });
-                    }
-                    return;
-                } else {
-                    // 本地音乐文件不存在（刷新后blob URL丢失）
-                    console.log("本地音乐文件URL已失效，需要重新导入");
-                    // 停止当前播放，但不清空 src 避免错误
-                    if (audioRef.value) {
-                        audioRef.value.pause();
-                    }
+                // 按需加载本地音乐文件信息
+                const localFile = await localMusicStore.getLocalFile(song.id);
+                if (!localFile) {
                     playerStore.isPlaying = false;
-                    ElMessage.warning("本地音乐文件已失效，请重新导入");
+                    ElMessage.warning("本地音乐文件不存在");
                     return;
                 }
+
+                const fileUrl = await localMusicStore.getTrackURL(song.id);
+                if (!fileUrl) {
+                    playerStore.isPlaying = false;
+                    ElMessage.warning("无法加载本地音乐文件");
+                    return;
+                }
+
+                audioRef.value.pause();
+                audioRef.value.src = fileUrl;
+                audioRef.value.load();
+
+                playerStore.setCurrentSongDetail({
+                    name: localFile.name,
+                    ar_name: localFile.artists,
+                    al_name: localFile.album,
+                    level: "本地",
+                    size: `${(localFile.fileSize / 1024 / 1024).toFixed(2)} MB`,
+                    url: fileUrl,
+                    pic: "",
+                    lyric: "",
+                });
+
+                const savedTime = playerStore.getSavedProgress(song.id);
+                if (savedTime > 0) {
+                    audioRef.value.addEventListener('loadedmetadata', () => {
+                        if (audioRef.value) {
+                            audioRef.value.currentTime = savedTime;
+                            playerStore.setCurrentTime(savedTime);
+                        }
+                    }, { once: true });
+                }
+
+                // 当前歌曲加载完成，启动后台加载其他本地音乐
+                if (!localMusicStore.isInitialized && !localMusicStore.isLoading) {
+                    const playlistLocalIds = playerStore.playlist
+                        .filter(s => localMusicStore.isLocalMusic(s.id))
+                        .map(s => s.id);
+
+                    setTimeout(() => {
+                        localMusicStore.startBackgroundLoading(playlistLocalIds);
+                    }, 1000);
+                }
+
+                return;
             }
 
             // 在线音乐处理

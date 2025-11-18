@@ -29,4 +29,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openF12() {
     return ipcRenderer.send("open-f12");
   },
+  // 本地音乐文件系统 API
+  saveLocalMusic(id: string, buffer: ArrayBuffer) {
+    return ipcRenderer.invoke("save-local-music", id, buffer);
+  },
+  readLocalMusic(id: string) {
+    return ipcRenderer.invoke("read-local-music", id);
+  },
+  deleteLocalMusic(id: string) {
+    return ipcRenderer.invoke("delete-local-music", id);
+  },
+  clearLocalMusic() {
+    return ipcRenderer.invoke("clear-local-music");
+  },
 });

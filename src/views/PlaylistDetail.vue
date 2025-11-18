@@ -16,6 +16,17 @@
 
         <!-- 主内容区 -->
         <div class="playlist-content">
+            <!-- 失效文件提示 -->
+            <el-alert v-if="isLocalPlaylist && invalidFilesCount > 0" type="warning"
+                :title="`检测到 ${invalidFilesCount} 个文件失效`" description="刷新页面后本地音乐文件可能失效，建议重新导入或使用 IndexedDB 自动恢复功能"
+                show-icon :closable="false" style="margin-bottom: 16px;">
+                <template #default>
+                    <el-button size="small" type="warning" @click="handleCleanInvalidFiles">
+                        清理失效文件
+                    </el-button>
+                </template>
+            </el-alert>
+
             <div v-if="songs.length === 0" class="empty-state">
                 <el-empty :description="emptyDescription">
                     <el-button v-if="isLocalPlaylist" type="primary" :icon="FolderAdd" @click="handleImportLocal">
@@ -34,7 +45,8 @@
                 <div class="table-body">
                     <div v-for="(song, index) in songs" :key="song.id" class="table-row" :class="[
                         playerStore.currentSong?.id === song.id ? 'is-playing' : '',
-                        selectedSongs.has(song.id) ? 'is-selected' : ''
+                        selectedSongs.has(song.id) ? 'is-selected' : '',
+                        isLocalPlaylist && !localMusicStore.isFileValid(song.id) ? 'is-invalid' : ''
                     ]" @click="handleSongClick(song, index, $event)" @dblclick="handlePlaySong(song)"
                         @contextmenu.prevent="handleContextMenu($event, song)">
                         <div class="col-index">
@@ -44,12 +56,19 @@
                             </el-icon>
                         </div>
                         <div class="col-name">
-                            <span class="song-name">{{ song.name }}</span>
+                            <span class="song-name">
+                                {{ song.name }}
+                                <el-tag v-if="isLocalPlaylist && !localMusicStore.isFileValid(song.id)" type="warning"
+                                    size="small" style="margin-left: 8px;">
+                                    文件失效
+                                </el-tag>
+                            </span>
                         </div>
                         <div class="col-artist">{{ song.artists }}</div>
                         <div class="col-album">{{ song.album }}</div>
                         <div class="col-actions">
-                            <el-button text :icon="VideoPlay" @click.stop="handlePlaySong(song)" title="播放" />
+                            <el-button text :icon="VideoPlay" @click.stop="handlePlaySong(song)" title="播放"
+                                :disabled="isLocalPlaylist && !localMusicStore.isFileValid(song.id)" />
                             <el-button v-if="!isBuiltinPlaylist" text :icon="Delete"
                                 @click.stop="handleRemoveSong(song.id)" title="从歌单删除" />
                             <el-button v-if="isFavoritePlaylist" text :icon="Star" type="danger"
@@ -195,6 +214,12 @@ const songs = computed(() => {
     if (isLocalPlaylist.value) return localMusicStore.localFiles;
     const playlist = playlistStore.getPlaylist(playlistId.value);
     return playlist?.songs || [];
+});
+
+// 失效文件数量
+const invalidFilesCount = computed(() => {
+    if (!isLocalPlaylist.value) return 0;
+    return songs.value.filter(song => !localMusicStore.isFileValid(song.id)).length;
 });
 
 const playAll = () => {
@@ -491,6 +516,30 @@ const handleFileChange = async (event: Event) => {
     }
 };
 
+// 清理失效文件
+const handleCleanInvalidFiles = async () => {
+    try {
+        await ElMessageBox.confirm(
+            `确定要清理 ${invalidFilesCount.value} 个失效文件吗？此操作不可恢复。`,
+            "清理失效文件",
+            {
+                confirmButtonText: "确定",
+                cancelButtonText: "取消",
+                type: "warning",
+            }
+        );
+
+        const invalidFiles = songs.value.filter(song => !localMusicStore.isFileValid(song.id));
+        for (const file of invalidFiles) {
+            await localMusicStore.removeLocalFile(file.id);
+        }
+
+        ElMessage.success(`已清理 ${invalidFiles.length} 个失效文件`);
+    } catch {
+        // 用户取消
+    }
+};
+
 onMounted(() => {
     // 检查歌单是否存在
     if (!isBuiltinPlaylist.value) {
@@ -627,6 +676,15 @@ onUnmounted(() => {
 
                         .col-name .song-name {
                             font-weight: 500;
+                        }
+                    }
+
+                    &.is-invalid {
+                        opacity: 0.5;
+
+                        .col-name .song-name {
+                            color: var(--el-text-color-secondary);
+                            text-decoration: line-through;
                         }
                     }
 

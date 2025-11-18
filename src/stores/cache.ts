@@ -33,17 +33,17 @@ export const useCacheStore = defineStore("cache", () => {
   };
 
   // 监听缓存变化，自动保存（使用防抖避免频繁写入）
-  let saveTimer: number | null = null;
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
   watch(
     songCache,
     () => {
       if (saveTimer !== null) {
         clearTimeout(saveTimer);
       }
-      saveTimer = window.setTimeout(() => {
+      saveTimer = setTimeout(() => {
         saveCache();
         saveTimer = null;
-      }, 1000);
+      }, 1100);
     },
     { deep: true }
   );
