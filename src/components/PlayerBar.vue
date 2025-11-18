@@ -64,6 +64,8 @@ import {
 import { usePlayerStore, PlayMode } from "@/stores/player";
 import { useCacheStore } from "@/stores/cache";
 import { useSettingsStore } from "@/stores/settings";
+import { usePlaylistStore } from "@/stores/playlist";
+import { useLocalMusicStore } from "@/stores/localMusic";
 import MusicApi from "@/api/music";
 import type { SongDetail } from "@/api/music";
 import { ElMessage } from "element-plus";
@@ -73,6 +75,25 @@ const router = useRouter();
 const playerStore = usePlayerStore();
 const cacheStore = useCacheStore();
 const settingsStore = useSettingsStore();
+
+// 安全地初始化新的stores
+let playlistStore;
+let localMusicStore;
+try {
+    playlistStore = usePlaylistStore();
+    localMusicStore = useLocalMusicStore();
+} catch (error) {
+    console.error("初始化store失败:", error);
+    // 提供默认的空实现
+    playlistStore = {
+        addToHistory: () => { },
+    } as any;
+    localMusicStore = {
+        isLocalMusic: () => false,
+        getLocalFile: () => null,
+    } as any;
+}
+
 const audioRef = ref<HTMLAudioElement>();
 
 // 跳转到详情页或返回
@@ -141,12 +162,215 @@ const formatTime = (seconds: number) => {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
+// 音质降级配置
+const QUALITY_LEVELS = [
+    "jymaster",   // 超清母带
+    "sky",        // 沉浸环绕声
+    "jyeffect",   // 高清环绕声
+    "hires",      // Hi-Res音质
+    "lossless",   // 无损音质
+    "exhigh",     // 极高音质
+    "standard"    // 标准音质
+];
+
+const QUALITY_NAMES: Record<string, string> = {
+    jymaster: "超清母带",
+    sky: "沉浸环绕声",
+    jyeffect: "高清环绕声",
+    hires: "Hi-Res",
+    lossless: "无损",
+    exhigh: "极高",
+    standard: "标准"
+};
+
+// 获取歌曲URL（带音质降级）
+const fetchSongWithQualityFallback = async (songId: string): Promise<SongDetail | null> => {
+    let currentQualityIndex = QUALITY_LEVELS.indexOf(settingsStore.quality);
+    if (currentQualityIndex === -1) {
+        currentQualityIndex = QUALITY_LEVELS.indexOf("lossless");
+    }
+
+    while (currentQualityIndex < QUALITY_LEVELS.length) {
+        try {
+            const data = await MusicApi.getSong(songId, QUALITY_LEVELS[currentQualityIndex]);
+            if (data.success && data.data?.url) {
+                const songDetail = data.data;
+
+                // 如果降级了，提示用户
+                if (currentQualityIndex > QUALITY_LEVELS.indexOf(settingsStore.quality)) {
+                    const originalQuality = settingsStore.quality;
+                    const currentQuality = QUALITY_LEVELS[currentQualityIndex];
+                    ElMessage.warning(
+                        `${QUALITY_NAMES[originalQuality]}音质不可用，已降级到${QUALITY_NAMES[currentQuality]}音质`
+                    );
+                }
+
+                return songDetail;
+            }
+        } catch (err: any) {
+            // 如果是服务器不可用的错误，直接退出循环
+            if (err?.message?.includes("服务器连接失败")) {
+                console.error("服务器错误，无法加载歌曲");
+                break;
+            }
+            console.error(`获取${QUALITY_NAMES[QUALITY_LEVELS[currentQualityIndex]]}音质失败:`, err);
+        }
+
+        currentQualityIndex++;
+    }
+
+    return null;
+};
+
+// 缓存失效后重新加载歌曲的公共函数
+const reloadSongAfterCacheExpired = async (songId: string, songName: string): Promise<SongDetail | null> => {
+    console.log(`缓存的URL可能已失效，重新请求: ${songName}`);
+
+    // 清除失效的缓存
+    cacheStore.setCachedSong(songId, undefined);
+
+    // 检查服务器状态
+    const isHealthy = await checkAPIHealth();
+    if (!isHealthy) {
+        ElMessage.error("服务器连接失败，无法重新加载歌曲");
+        return null;
+    }
+
+    // 重新获取歌曲
+    const newSongDetail = await fetchSongWithQualityFallback(songId);
+
+    if (newSongDetail) {
+        // 更新缓存
+        cacheStore.setCachedSong(songId, newSongDetail);
+        playerStore.setCurrentSongDetail(newSongDetail);
+        ElMessage.success("已重新加载歌曲");
+        return newSongDetail;
+    } else {
+        ElMessage.error("重新加载失败，歌曲不可用");
+        return null;
+    }
+};
+
+// 清空音频源的公共函数
+const clearAudioSource = () => {
+    if (audioRef.value) {
+        audioRef.value.pause();
+        audioRef.value.src = '';
+        audioRef.value.load();
+    }
+};
+
+// 统一的错误处理函数
+const handleSongLoadError = (message: string, clearSource: boolean = true) => {
+    playerStore.isPlaying = false;
+    ElMessage.error(message);
+    if (clearSource) {
+        clearAudioSource();
+    }
+};
+
+// 平滑淡出函数，使用指数衰减曲线，避免切歌时的爆音
+const fadeOut = async (duration: number = 20): Promise<void> => {
+    if (!audioRef.value) return;
+
+    const originalVolume = audioRef.value.volume;
+    const steps = 4; // 减少到4步
+    const stepDuration = duration / steps;
+
+    for (let i = 0; i < steps; i++) {
+        if (audioRef.value) {
+            // 使用指数衰减：音量快速下降，但平滑过渡
+            const progress = (i + 1) / steps;
+            const exponentialProgress = Math.pow(progress, 2); // 平方衰减
+            audioRef.value.volume = originalVolume * (1 - exponentialProgress);
+            await new Promise(resolve => setTimeout(resolve, stepDuration));
+        }
+    }
+
+    if (audioRef.value) {
+        audioRef.value.volume = 0;
+    }
+};
+
 // 监听当前歌曲变化，加载音频
 watch(
     () => playerStore.currentSong,
-    async (newSong) => {
+    async (newSong, oldSong) => {
         if (newSong && audioRef.value) {
+            const wasPlaying = playerStore.isPlaying;
+            const originalVolume = audioRef.value.volume;
+
+            // 如果有旧歌曲正在播放，先平滑淡出
+            if (oldSong && !audioRef.value.paused) {
+                await fadeOut(20); // 20ms 极速淡出
+            } else {
+                // 如果没有播放，直接静音
+                audioRef.value.volume = 0;
+            }
+
+            // 立即暂停并重置
+            audioRef.value.pause();
+            audioRef.value.currentTime = 0;
+
+            // 异步添加到试听列表，不阻塞切歌流程
+            Promise.resolve().then(() => {
+                try {
+                    playlistStore?.addToHistory(newSong);
+                } catch (error) {
+                    console.error("添加到试听列表失败:", error);
+                }
+            });
+
+            // 极速恢复音量（30ms）
+            setTimeout(() => {
+                if (audioRef.value) {
+                    audioRef.value.volume = originalVolume;
+                }
+            }, 30);
+
             try {
+                // 检查是否为本地音乐
+                if (localMusicStore.isLocalMusic(newSong.id)) {
+                    const localFile = localMusicStore.getLocalFile(newSong.id);
+                    if (localFile && localFile.fileUrl) {
+                        // 本地音乐直接使用 blob URL
+                        audioRef.value.src = localFile.fileUrl;
+                        audioRef.value.load();
+
+                        // 设置简单的歌曲详情
+                        playerStore.setCurrentSongDetail({
+                            name: localFile.name,
+                            ar_name: localFile.artists,
+                            al_name: localFile.album,
+                            level: "本地",
+                            size: `${(localFile.fileSize / 1024 / 1024).toFixed(2)} MB`,
+                            url: localFile.fileUrl,
+                            pic: "",
+                            lyric: "",
+                        });
+
+                        if (wasPlaying) {
+                            setTimeout(async () => {
+                                try {
+                                    if (audioRef.value && audioRef.value.readyState >= 2) {
+                                        await audioRef.value.play();
+                                    }
+                                } catch (err) {
+                                    console.error("播放失败:", err);
+                                    ElMessage.error("音频加载失败，请重试");
+                                    playerStore.isPlaying = false;
+                                }
+                            }, 100);
+                        }
+                        return;
+                    } else {
+                        // 本地文件不存在
+                        handleSongLoadError("本地音乐文件不存在", false);  // 不清空 src，避免错误
+                        return;
+                    }
+                }
+
+                // 在线音乐处理逻辑
                 // 先检查缓存
                 let songDetail = cacheStore.getCachedSong(newSong.id);
 
@@ -155,103 +379,86 @@ watch(
                 } else {
                     console.log(`请求API获取歌曲: ${newSong.name}, 音质: ${settingsStore.quality}`);
 
-                    // 先检查后端状态，避免在音质降级循环中重复检查
-                    // 如果后端之前不可用，会自动在5秒后重新检查（不需要force）
+                    // 先检查后端状态
                     const isHealthy = await checkAPIHealth();
                     if (!isHealthy) {
-                        ElMessage.error("服务器连接失败，无法加载歌曲");
+                        handleSongLoadError("服务器连接失败，无法加载歌曲");
                         return;
                     }
 
-                    // 音质降级顺序：从高到低
-                    const qualityLevels = [
-                        "jymaster",   // 超清母带
-                        "sky",        // 沉浸环绕声
-                        "jyeffect",   // 高清环绕声
-                        "hires",      // Hi-Res音质
-                        "lossless",   // 无损音质
-                        "exhigh",     // 极高音质
-                        "standard"    // 标准音质
-                    ];
+                    // 使用公共函数获取歌曲（带音质降级）
+                    const fetchedSong = await fetchSongWithQualityFallback(newSong.id);
+                    songDetail = fetchedSong ?? undefined;
 
-                    // 音质名称映射
-                    const qualityNames: Record<string, string> = {
-                        jymaster: "超清母带",
-                        sky: "沉浸环绕声",
-                        jyeffect: "高清环绕声",
-                        hires: "Hi-Res",
-                        lossless: "无损",
-                        exhigh: "极高",
-                        standard: "标准"
-                    };
-
-                    // 从用户选择的音质开始尝试
-                    let currentQualityIndex = qualityLevels.indexOf(settingsStore.quality);
-                    if (currentQualityIndex === -1) {
-                        currentQualityIndex = qualityLevels.indexOf("lossless"); // 默认无损
-                    }
-
-                    while (currentQualityIndex < qualityLevels.length) {
-                        try {
-                            const data = await MusicApi.getSong(newSong.id, qualityLevels[currentQualityIndex]);
-                            if (data.success && data.data?.url) {
-                                songDetail = data.data;
-
-                                // 如果降级了，提示用户
-                                if (currentQualityIndex > qualityLevels.indexOf(settingsStore.quality)) {
-                                    const originalQuality = settingsStore.quality;
-                                    const currentQuality = qualityLevels[currentQualityIndex];
-                                    ElMessage.warning(
-                                        `${qualityNames[originalQuality]}音质不可用，已降级到${qualityNames[currentQuality]}音质`
-                                    );
-                                }
-
-                                // 缓存歌曲详情
-                                cacheStore.setCachedSong(newSong.id, songDetail);
-                                break;
-                            }
-                        } catch (err: any) {
-                            // 如果是服务器不可用的错误，直接退出循环
-                            if (err?.message?.includes("服务器连接失败")) {
-                                console.error("服务器错误，无法加载歌曲");
-                                break;
-                            }
-                            console.error(`获取${qualityNames[qualityLevels[currentQualityIndex]]}音质失败:`, err);
-                        }
-
-                        // 尝试下一个音质级别
-                        currentQualityIndex++;
+                    if (songDetail) {
+                        // 缓存歌曲详情
+                        cacheStore.setCachedSong(newSong.id, songDetail);
                     }
 
                     if (!songDetail) {
-                        ElMessage.error("无法加载歌曲");
+                        handleSongLoadError("无法加载歌曲，所有音质均不可用");
                         return;
                     }
                 }
 
                 // 确保songDetail存在后再使用
                 if (!songDetail) {
-                    ElMessage.error("歌曲详情获取失败");
+                    handleSongLoadError("歌曲详情获取失败");
+                    return;
+                }
+
+                // 检查音频 URL 是否有效
+                if (!songDetail.url || songDetail.url.trim() === '') {
+                    handleSongLoadError("音频链接无效，该歌曲可能无法播放");
                     return;
                 }
 
                 playerStore.setCurrentSongDetail(songDetail as SongDetail);
 
-                // 检查音频 URL 是否有效
-                if (!songDetail.url || songDetail.url.trim() === '') {
-                    ElMessage.error("音频链接无效");
-                    return;
-                }
-
-                // 重置音频元素
-                audioRef.value.pause();
-                audioRef.value.currentTime = 0;
+                // 设置音频源并加载
                 audioRef.value.src = songDetail.url;
 
-                // 等待音频加载完成后再播放
+                // 标记是否使用了缓存
+                const isFromCache = cacheStore.hasCachedSong(newSong.id);
+
+                // 监听加载错误，如果是缓存的URL失效，自动重新请求
+                const handleLoadError = async () => {
+                    if (isFromCache && audioRef.value) {
+                        // 移除错误监听器，避免重复触发
+                        audioRef.value.removeEventListener('error', handleLoadError);
+
+                        // 使用公共函数重新加载
+                        const newSongDetail = await reloadSongAfterCacheExpired(newSong.id, newSong.name);
+
+                        if (newSongDetail && audioRef.value) {
+                            // 设置新的URL
+                            audioRef.value.src = newSongDetail.url;
+                            audioRef.value.load();
+
+                            // 如果之前在播放，继续播放
+                            if (wasPlaying) {
+                                setTimeout(async () => {
+                                    try {
+                                        if (audioRef.value && audioRef.value.readyState >= 2) {
+                                            await audioRef.value.play();
+                                        }
+                                    } catch (err) {
+                                        console.error("重新播放失败:", err);
+                                    }
+                                }, 100);
+                            }
+                        } else {
+                            playerStore.isPlaying = false;
+                        }
+                    }
+                };
+
+                // 添加一次性错误监听器
+                audioRef.value.addEventListener('error', handleLoadError, { once: true });
+
                 audioRef.value.load();
 
-                if (playerStore.isPlaying) {
+                if (wasPlaying) {
                     // 等待一小段时间确保音频已开始加载
                     setTimeout(async () => {
                         try {
@@ -267,7 +474,7 @@ watch(
                 }
             } catch (error) {
                 console.error("加载歌曲失败:", error);
-                ElMessage.error("加载歌曲失败");
+                handleSongLoadError("加载歌曲失败");
             }
         }
     },
@@ -471,13 +678,57 @@ onMounted(async () => {
 
         try {
             const song = playerStore.currentSong;
+
+            // 检查是否为本地音乐
+            if (localMusicStore.isLocalMusic(song.id)) {
+                const localFile = localMusicStore.getLocalFile(song.id);
+                if (localFile && localFile.fileUrl) {
+                    console.log("加载本地音乐:", localFile.name);
+                    audioRef.value.pause();
+                    audioRef.value.src = localFile.fileUrl;
+                    audioRef.value.load();
+
+                    playerStore.setCurrentSongDetail({
+                        name: localFile.name,
+                        ar_name: localFile.artists,
+                        al_name: localFile.album,
+                        level: "本地",
+                        size: `${(localFile.fileSize / 1024 / 1024).toFixed(2)} MB`,
+                        url: localFile.fileUrl,
+                        pic: "",
+                        lyric: "",
+                    });
+
+                    const savedTime = playerStore.getSavedProgress(song.id);
+                    if (savedTime > 0) {
+                        audioRef.value.addEventListener('loadedmetadata', () => {
+                            if (audioRef.value) {
+                                audioRef.value.currentTime = savedTime;
+                                playerStore.setCurrentTime(savedTime);
+                            }
+                        }, { once: true });
+                    }
+                    return;
+                } else {
+                    // 本地音乐文件不存在（刷新后blob URL丢失）
+                    console.log("本地音乐文件URL已失效，需要重新导入");
+                    // 停止当前播放，但不清空 src 避免错误
+                    if (audioRef.value) {
+                        audioRef.value.pause();
+                    }
+                    playerStore.isPlaying = false;
+                    ElMessage.warning("本地音乐文件已失效，请重新导入");
+                    return;
+                }
+            }
+
+            // 在线音乐处理
             let songDetail = cacheStore.getCachedSong(song.id);
 
             if (!songDetail) {
                 console.log(`从API获取歌曲详情: ${song.name}`);
 
-                // 先检查后端状态，避免在音质降级循环中重复检查
-                // 如果后端之前不可用，会自动在5秒后重新检查（不需要force）
+                // 先检查后端状态
                 const isHealthy = await checkAPIHealth();
                 if (!isHealthy) {
                     console.error("服务器不可用，无法加载歌曲");
@@ -485,48 +736,12 @@ onMounted(async () => {
                     return;
                 }
 
-                // 音质降级逻辑
-                const qualityLevels = [
-                    "jymaster", "sky", "jyeffect", "hires",
-                    "lossless", "exhigh", "standard"
-                ];
+                // 使用公共函数获取歌曲（带音质降级）
+                const fetchedSong = await fetchSongWithQualityFallback(song.id);
+                songDetail = fetchedSong ?? undefined;
 
-                const qualityNames: Record<string, string> = {
-                    jymaster: "超清母带", sky: "沉浸环绕声", jyeffect: "高清环绕声",
-                    hires: "Hi-Res", lossless: "无损", exhigh: "极高", standard: "标准"
-                };
-
-                let currentQualityIndex = qualityLevels.indexOf(settingsStore.quality);
-                if (currentQualityIndex === -1) {
-                    currentQualityIndex = qualityLevels.indexOf("lossless");
-                }
-
-                while (currentQualityIndex < qualityLevels.length) {
-                    try {
-                        const data = await MusicApi.getSong(song.id, qualityLevels[currentQualityIndex]);
-                        if (data.success && data.data?.url) {
-                            songDetail = data.data;
-
-                            if (currentQualityIndex > qualityLevels.indexOf(settingsStore.quality)) {
-                                const originalQuality = settingsStore.quality;
-                                const currentQuality = qualityLevels[currentQualityIndex];
-                                ElMessage.warning(
-                                    `${qualityNames[originalQuality]}音质不可用，已降级到${qualityNames[currentQuality]}音质`
-                                );
-                            }
-
-                            cacheStore.setCachedSong(song.id, songDetail);
-                            break;
-                        }
-                    } catch (err: any) {
-                        // 如果是服务器不可用的错误，直接退出循环
-                        if (err?.message?.includes("服务器连接失败")) {
-                            // console.error("服务器不可用，停止音质降级尝试");
-                            break;
-                        }
-                        console.error(`获取${qualityNames[qualityLevels[currentQualityIndex]]}音质失败:`, err);
-                    }
-                    currentQualityIndex++;
+                if (songDetail) {
+                    cacheStore.setCachedSong(song.id, songDetail);
                 }
             }
 
@@ -537,6 +752,41 @@ onMounted(async () => {
                 // 设置音频源
                 audioRef.value.pause();
                 audioRef.value.src = songDetail.url;
+
+                // 标记是否使用了缓存（用于刷新后的恢复）
+                const isFromCache = cacheStore.hasCachedSong(song.id);
+
+                // 监听加载错误，如果是缓存的URL失效，自动重新请求
+                const handleMountedLoadError = async () => {
+                    if (isFromCache && audioRef.value) {
+                        // 移除错误监听器
+                        audioRef.value.removeEventListener('error', handleMountedLoadError);
+
+                        // 使用公共函数重新加载
+                        const newSongDetail = await reloadSongAfterCacheExpired(song.id, song.name);
+
+                        if (newSongDetail && audioRef.value) {
+                            // 设置新的URL
+                            audioRef.value.src = newSongDetail.url;
+                            audioRef.value.load();
+
+                            // 恢复播放进度
+                            const savedTime = playerStore.getSavedProgress(song.id);
+                            if (savedTime > 0) {
+                                audioRef.value.addEventListener('loadedmetadata', () => {
+                                    if (audioRef.value) {
+                                        audioRef.value.currentTime = savedTime;
+                                        playerStore.setCurrentTime(savedTime);
+                                    }
+                                }, { once: true });
+                            }
+                        }
+                    }
+                };
+
+                // 添加一次性错误监听器
+                audioRef.value.addEventListener('error', handleMountedLoadError, { once: true });
+
                 audioRef.value.load();
 
                 // 恢复播放进度

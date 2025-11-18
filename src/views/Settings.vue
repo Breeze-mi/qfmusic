@@ -2,7 +2,6 @@
     <div class="settings-page">
         <!-- 顶部栏 -->
         <div class="top-bar">
-            <el-button :icon="ArrowLeft" circle @click="goBack" title="返回" />
             <h1>设置</h1>
         </div>
 
@@ -15,19 +14,29 @@
                         <div class="setting-title">主题模式</div>
                         <div class="setting-desc">切换深色或浅色主题</div>
                     </div>
-                    <el-switch v-model="themeStore.isDark" @change="themeStore.toggleTheme" active-text="深色"
-                        inactive-text="浅色" />
+                    <el-switch v-model="themeStore.isDark" active-text="深色" inactive-text="浅色" />
                 </div>
             </div>
 
             <div class="settings-section">
-                <h2>存储</h2>
+                <h2>缓存</h2>
                 <div class="setting-item">
                     <div class="setting-info">
                         <div class="setting-title">缓存管理</div>
-                        <div class="setting-desc">已缓存 {{ cacheSize }}</div>
+                        <div class="setting-desc">
+                            <div>已缓存 {{ cacheInfo.count }} 首歌曲，占用 {{ cacheInfo.size }}</div>
+                            <el-progress :percentage="cachePercentage" :show-text="false"
+                                :color="cachePercentage > 80 ? '#f56c6c' : '#409eff'" style="margin-top: 8px;" />
+                        </div>
                     </div>
-                    <el-button type="danger" @click="handleClearCache">清空缓存</el-button>
+                    <el-button type="danger" @click="handleClearCache"
+                        :disabled="cacheInfo.count === 0">清空缓存</el-button>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-title">自动缓存</div>
+                        <div class="setting-desc">播放过的歌曲会自动缓存，最多缓存 100 首</div>
+                    </div>
                 </div>
             </div>
 
@@ -91,7 +100,7 @@
                 <div class="setting-item">
                     <div class="setting-info">
                         <div class="setting-title">技术栈</div>
-                        <div class="setting-desc">Vue 3 + TypeScript + Electron</div>
+                        <div class="setting-desc">Vite + Vue 3 + TypeScript + Electron</div>
                     </div>
                 </div>
             </div>
@@ -101,34 +110,39 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { useRouter } from "vue-router";
-import { ArrowLeft } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import { usePlayerStore } from "@/stores/player";
 import { useThemeStore } from "@/stores/theme";
 import { useCacheStore } from "@/stores/cache";
 import { useSettingsStore } from "@/stores/settings";
 
-const router = useRouter();
 const playerStore = usePlayerStore();
 const themeStore = useThemeStore();
 const cacheStore = useCacheStore();
 const settingsStore = useSettingsStore();
 
-const goBack = () => {
-    router.push("/");
+// 计算缓存信息
+const cacheInfo = computed(() => {
+    const info = cacheStore.getCacheInfo();
+    return {
+        count: info.count,
+        size: formatBytes(info.bytes),
+        bytes: info.bytes
+    };
+});
+
+// 格式化字节大小
+const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return "0 B";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 };
 
-// 计算缓存大小（估算）
-const cacheSize = computed(() => {
-    const count = cacheStore.getCacheSize();
-    if (count === 0) return "0 MB";
-    // 假设每首歌平均缓存数据约 5KB（歌曲详情JSON）
-    const sizeKB = count * 5;
-    if (sizeKB < 1024) {
-        return `${sizeKB.toFixed(1)} KB`;
-    }
-    return `${(sizeKB / 1024).toFixed(2)} MB`;
+// 获取缓存占用百分比（假设最大100MB）
+const cachePercentage = computed(() => {
+    const maxBytes = 100 * 1024 * 1024; // 100MB
+    return Math.min((cacheInfo.value.bytes / maxBytes) * 100, 100);
 });
 
 const handleClearCache = () => {
@@ -210,6 +224,11 @@ const handleClearPlaylist = () => {
                     .setting-desc {
                         font-size: 13px;
                         color: var(--el-text-color-secondary);
+                        max-width: 500px;
+
+                        :deep(.el-progress) {
+                            width: 100%;
+                        }
                     }
                 }
             }

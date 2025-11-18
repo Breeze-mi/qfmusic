@@ -70,6 +70,12 @@ export const useCacheStore = defineStore("cache", () => {
 
       songCache.value.set(songId, songDetail);
       console.log(`缓存歌曲: ${songId}, 当前缓存数量: ${songCache.value.size}`);
+    } else {
+      // 如果 songDetail 为 undefined，删除缓存
+      if (songCache.value.has(songId)) {
+        songCache.value.delete(songId);
+        console.log(`删除失效的缓存: ${songId}`);
+      }
     }
   };
 

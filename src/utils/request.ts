@@ -3,6 +3,8 @@ import { ElMessage } from "element-plus";
 // 网易云音乐 API 基础地址
 const BASE_URL = "http://10.91.84.162:5000";
 
+// const BASE_URL = "http://10.22.19.155:5000";
+
 // 请求超时时间（毫秒）
 const TIMEOUT = 30000;
 

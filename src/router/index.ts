@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory } from "vue-router";
 import Home from "@/views/Home.vue";
 import Settings from "@/views/Settings.vue";
 import SongDetail from "@/views/SongDetail.vue";
+import PlaylistDetail from "@/views/PlaylistDetail.vue";
 
 const routes = [
   {
@@ -18,6 +19,11 @@ const routes = [
     path: "/song-detail",
     name: "SongDetail",
     component: SongDetail,
+  },
+  {
+    path: "/playlist/:id",
+    name: "PlaylistDetail",
+    component: PlaylistDetail,
   },
 ];
 

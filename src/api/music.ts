@@ -69,7 +69,7 @@ const MusicApi = {
   // 获取歌曲详情和播放链接
   getSong: async (id: string | number, level: string = "lossless") => {
     const response = await Request.post<ApiResponse<SongDetail>>("/song", {
-      id: String(id),
+      url: String(id),
       level,
       type: "json",
     });

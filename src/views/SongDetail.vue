@@ -2,9 +2,10 @@
     <div class="song-detail-page">
         <!-- 顶部栏 -->
         <div class="top-bar">
-            <el-button circle :icon="ArrowLeft" @click="goBack" title="返回" />
-            <span class="page-title">{{ playerStore.currentSong?.name || '播放详情' }}</span>
+            <h2 class="page-title">{{ playerStore.currentSong?.name || '播放详情' }}</h2>
             <div class="spacer"></div>
+            <el-button circle :icon="Setting" @click="navigateToSettings" title="设置" />
+            <el-button circle :icon="themeStore.isDark ? Sunny : Moon" @click="themeStore.toggleTheme" title="切换主题" />
         </div>
 
         <!-- 主内容区：左右布局 -->
@@ -47,11 +48,17 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted } from "vue";
 import { useRouter } from "vue-router";
-import { ArrowLeft } from "@element-plus/icons-vue";
+import { Setting, Sunny, Moon } from "@element-plus/icons-vue";
 import { usePlayerStore } from "@/stores/player";
+import { useThemeStore } from "@/stores/theme";
 
 const router = useRouter();
 const playerStore = usePlayerStore();
+const themeStore = useThemeStore();
+
+const navigateToSettings = () => {
+    router.push("/settings");
+};
 
 interface LyricLine {
     time: number;
@@ -64,10 +71,6 @@ const lyricsContainerRef = ref<HTMLElement>();
 const currentLyricRef = ref<HTMLElement>();
 let scrollTimer: number | null = null;
 let scrollAnimationFrame: number | null = null;
-
-const goBack = () => {
-    router.back();
-};
 
 // 解析歌词
 const parseLyric = (lyricText: string) => {
@@ -211,18 +214,19 @@ onMounted(() => {
         display: flex;
         align-items: center;
         gap: 16px;
-        padding: 16px 24px;
+        padding: 20px 24px;
         background: var(--el-bg-color);
         border-bottom: 1px solid var(--el-border-color);
         flex-shrink: 0;
 
         .page-title {
-            font-size: 18px;
+            font-size: 22px;
             font-weight: 600;
             color: var(--el-text-color-primary);
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            margin: 0;
         }
 
         .spacer {

@@ -1,13 +1,10 @@
 <template>
     <div class="home-page">
-        <!-- 顶部栏 -->
+        <!-- 顶部搜索栏 -->
         <div class="top-bar">
-            <div class="logo">
-                <h1>🎵 音乐播放器</h1>
-            </div>
             <SearchBar />
-            <div class="actions">
-                <el-button circle :icon="Setting" @click="goToSettings" title="设置" />
+            <div class="top-actions">
+                <el-button circle :icon="Setting" @click="navigateToSettings" title="设置" />
                 <el-button circle :icon="themeStore.isDark ? Sunny : Moon" @click="themeStore.toggleTheme"
                     title="切换主题" />
             </div>
@@ -19,14 +16,8 @@
             <div v-if="searchStore.showResults" class="search-results-container">
                 <div class="results-header">
                     <h2>搜索结果</h2>
-                    <span class="results-count">
-                        共 {{ searchStore.total }} 首歌曲
-                        <span v-if="searchStore.totalPages > 1" class="page-info">
-
-                        </span>
-                    </span>
+                    <span class="results-count">共 {{ searchStore.total }} 首歌曲</span>
                 </div>
-
                 <!-- 无结果提示 -->
                 <div v-if="searchStore.total === 0" class="no-results">
                     <el-empty description="未找到相关歌曲">
@@ -51,8 +42,11 @@
                         </div>
                         <div class="table-body">
                             <div v-for="(song, index) in searchStore.searchResults" :key="song.id" class="table-row"
-                                @dblclick="handlePlaySong(song)" @contextmenu.prevent="handleContextMenu($event, song)"
-                                :class="{ 'is-playing': playerStore.currentSong?.id === song.id }">
+                                @click="handleSongClick(song, index, $event)" @dblclick="handlePlaySong(song)"
+                                @contextmenu.prevent="handleContextMenu($event, song)" :class="{
+                                    'is-playing': playerStore.currentSong?.id === song.id,
+                                    'is-selected': selectedSongs.has(song.id)
+                                }">
                                 <div class="col-index">
                                     <span v-if="playerStore.currentSong?.id !== song.id">
                                         {{ (searchStore.currentPage - 1) * searchStore.pageSize + index + 1 }}
@@ -107,56 +101,94 @@
         <!-- 右键菜单 -->
         <div v-if="contextMenuVisible" class="context-menu"
             :style="{ top: contextMenuY + 'px', left: contextMenuX + 'px' }" @click="closeContextMenu">
-            <div class="menu-item" @click="handlePlaySong(contextMenuSong!)">
+            <!-- 单选时显示播放选项 -->
+            <div v-if="selectedSongs.size <= 1" class="menu-item" @click="handlePlaySong(contextMenuSong!)">
                 <el-icon>
                     <VideoPlay />
                 </el-icon>
                 <span>播放</span>
             </div>
-            <div class="menu-item" @click="handlePlayNext(contextMenuSong!)">
+            <div class="menu-item" @click="handleMenuPlayNext">
                 <el-icon>
                     <DArrowRight />
                 </el-icon>
                 <span>下一首播放</span>
             </div>
-            <div class="menu-item" @click="handleAddToPlaylist(contextMenuSong!)">
+            <div class="menu-item" @click="handleMenuAddToPlaylist">
                 <el-icon>
                     <Plus />
                 </el-icon>
                 <span>添加到播放列表</span>
+            </div>
+            <div class="menu-item" @click="handleMenuToggleFavorite">
+                <el-icon>
+                    <Star />
+                </el-icon>
+                <span>{{ getMenuFavoriteText }}</span>
+            </div>
+            <div class="menu-divider"></div>
+            <div class="menu-item submenu" @mouseenter="showPlaylistSubmenu = true"
+                @mouseleave="showPlaylistSubmenu = false">
+                <el-icon>
+                    <FolderAdd />
+                </el-icon>
+                <span>添加到歌单</span>
+                <el-icon class="arrow-icon">
+                    <ArrowRight />
+                </el-icon>
+                <!-- 子菜单 -->
+                <div v-if="showPlaylistSubmenu" class="submenu-content">
+                    <div v-if="playlistStore.playlists.length === 0" class="submenu-item disabled">
+                        暂无歌单
+                    </div>
+                    <template v-else>
+                        <div v-for="playlist in playlistStore.playlists" :key="playlist.id" class="submenu-item"
+                            @click.stop="handleMenuAddToCustomPlaylist(playlist.id)">
+                            {{ playlist.name }}
+                        </div>
+                    </template>
+                </div>
             </div>
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, onUnmounted } from "vue";
+import { onMounted, ref, onUnmounted, computed } from "vue";
 import { useRouter } from "vue-router";
-import { Sunny, Moon, VideoPlay, Plus, Download, Setting, DArrowRight } from "@element-plus/icons-vue";
+import { VideoPlay, Plus, Download, DArrowRight, Star, Setting, Sunny, Moon, FolderAdd, ArrowRight } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import SearchBar from "@/components/SearchBar.vue";
 import { usePlayerStore } from "@/stores/player";
 import { useThemeStore } from "@/stores/theme";
 import { useSearchStore } from "@/stores/search";
+import { usePlaylistStore } from "@/stores/playlist";
 import type { Song } from "@/api/music";
 
 const router = useRouter();
 const playerStore = usePlayerStore();
 const themeStore = useThemeStore();
 const searchStore = useSearchStore();
+const playlistStore = usePlaylistStore();
 
-const goToSettings = () => {
+const navigateToSettings = () => {
     router.push("/settings");
 };
 
+
+
 const handlePageChange = (page: number) => {
     searchStore.setCurrentPage(page);
+    // 清空选中状态
+    selectedSongs.value.clear();
+    lastSelectedIndex.value = null;
     // 滚动到顶部
     window.scrollTo({ top: 0, behavior: 'smooth' });
 };
 
 const handlePlaySong = (song: Song) => {
     playerStore.playSong(song);
+    playlistStore.addToHistory(song);
     ElMessage.success(`开始播放：${song.name}`);
 };
 
@@ -169,15 +201,164 @@ const handleAddToPlaylist = (song: Song) => {
     }
 };
 
+// 处理歌曲点击（支持多选）
+const handleSongClick = (song: Song, index: number, event: MouseEvent) => {
+    // Ctrl/Cmd + 点击：多选
+    if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        if (selectedSongs.value.has(song.id)) {
+            selectedSongs.value.delete(song.id);
+            if (selectedSongs.value.size === 0) {
+                lastSelectedIndex.value = null;
+            }
+        } else {
+            selectedSongs.value.add(song.id);
+            lastSelectedIndex.value = index;
+        }
+    }
+    // Shift + 点击：范围选择
+    else if (event.shiftKey && lastSelectedIndex.value !== null) {
+        event.preventDefault();
+        const start = Math.min(lastSelectedIndex.value, index);
+        const end = Math.max(lastSelectedIndex.value, index);
+        selectedSongs.value.clear();
+        for (let i = start; i <= end; i++) {
+            if (searchStore.searchResults[i]) {
+                selectedSongs.value.add(searchStore.searchResults[i].id);
+            }
+        }
+    }
+    // 普通点击：清空选中
+    else {
+        if (selectedSongs.value.size > 0) {
+            selectedSongs.value.clear();
+            lastSelectedIndex.value = null;
+        }
+    }
+};
+
+// 获取要操作的歌曲列表（单选或多选）
+const getTargetSongs = () => {
+    if (selectedSongs.value.size > 1) {
+        return searchStore.searchResults.filter(s => selectedSongs.value.has(s.id));
+    }
+    return contextMenuSong.value ? [contextMenuSong.value] : [];
+};
+
+// 收藏菜单文本
+const getMenuFavoriteText = computed(() => {
+    if (selectedSongs.value.size > 1) {
+        return '收藏';
+    }
+    return playlistStore.isFavorite(contextMenuSong.value?.id || '') ? '取消收藏' : '收藏';
+});
+
+// 统一的菜单处理：添加到播放列表
+const handleMenuAddToPlaylist = () => {
+    const songs = getTargetSongs();
+    if (songs.length === 0) return;
+
+    songs.forEach(song => playerStore.addToPlaylist(song));
+    ElMessage.success(songs.length > 1 ? `已添加 ${songs.length} 首歌曲到播放列表` : `已添加到播放列表：${songs[0].name}`);
+    selectedSongs.value.clear();
+    lastSelectedIndex.value = null;
+    closeContextMenu();
+};
+
+// 统一的菜单处理：下一首播放
+const handleMenuPlayNext = () => {
+    const songs = getTargetSongs();
+    if (songs.length === 0) return;
+
+    const currentIndex = playerStore.currentIndex;
+
+    // 从后往前插入，保持顺序
+    [...songs].reverse().forEach(song => {
+        const existingIndex = playerStore.playlist.findIndex((s) => s.id === song.id);
+        if (existingIndex !== -1) {
+            const playlist = [...playerStore.playlist];
+            const [movedSong] = playlist.splice(existingIndex, 1);
+            playlist.splice(currentIndex + 1, 0, movedSong);
+            playerStore.playlist = playlist;
+        } else {
+            playerStore.playlist.splice(currentIndex + 1, 0, song);
+        }
+    });
+
+    ElMessage.success(songs.length > 1 ? `已将 ${songs.length} 首歌曲添加为下一首播放` : `已将《${songs[0].name}》添加为下一首播放`);
+    selectedSongs.value.clear();
+    lastSelectedIndex.value = null;
+    closeContextMenu();
+};
+
+// 统一的菜单处理：收藏/取消收藏
+const handleMenuToggleFavorite = () => {
+    const songs = getTargetSongs();
+    if (songs.length === 0) return;
+
+    if (songs.length === 1) {
+        const isFav = playlistStore.toggleFavorite(songs[0]);
+        ElMessage.success(isFav ? "已添加到我喜欢" : "已取消收藏");
+    } else {
+        // 批量收藏
+        let addedCount = 0;
+        songs.forEach(song => {
+            if (!playlistStore.isFavorite(song.id)) {
+                playlistStore.toggleFavorite(song);
+                addedCount++;
+            }
+        });
+        ElMessage.success(`已收藏 ${addedCount} 首歌曲`);
+    }
+
+    selectedSongs.value.clear();
+    lastSelectedIndex.value = null;
+    closeContextMenu();
+};
+
+// 统一的菜单处理：添加到自定义歌单
+const handleMenuAddToCustomPlaylist = (playlistId: string) => {
+    const songs = getTargetSongs();
+    if (songs.length === 0) return;
+
+    let addedCount = 0;
+    songs.forEach(song => {
+        const success = playlistStore.addSongToPlaylist(playlistId, song);
+        if (success) addedCount++;
+    });
+
+    const playlist = playlistStore.getPlaylist(playlistId);
+    if (addedCount > 0) {
+        ElMessage.success(songs.length > 1 ? `已添加 ${addedCount} 首歌曲到歌单《${playlist?.name}》` : `已添加到歌单《${playlist?.name}》`);
+    } else {
+        ElMessage.info("歌曲已在该歌单中");
+    }
+
+    selectedSongs.value.clear();
+    lastSelectedIndex.value = null;
+    closeContextMenu();
+};
 // 右键菜单状态
 const contextMenuVisible = ref(false);
 const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const contextMenuSong = ref<Song | null>(null);
+const showPlaylistSubmenu = ref(false);
+
+// 多选状态
+const selectedSongs = ref<Set<string>>(new Set());
+const lastSelectedIndex = ref<number | null>(null);
 
 // 显示右键菜单
 const handleContextMenu = (event: MouseEvent, song: Song) => {
     event.preventDefault();
+
+    // 如果右键点击的歌曲不在选中列表中，清空选中状态
+    if (!selectedSongs.value.has(song.id)) {
+        selectedSongs.value.clear();
+        lastSelectedIndex.value = null;
+    }
+
     contextMenuSong.value = song;
     contextMenuX.value = event.clientX;
     contextMenuY.value = event.clientY;
@@ -188,26 +369,6 @@ const handleContextMenu = (event: MouseEvent, song: Song) => {
 const closeContextMenu = () => {
     contextMenuVisible.value = false;
     contextMenuSong.value = null;
-};
-
-// 下一首播放
-const handlePlayNext = (song: Song) => {
-    const currentIndex = playerStore.currentIndex;
-    const existingIndex = playerStore.playlist.findIndex((s) => s.id === song.id);
-
-    if (existingIndex !== -1) {
-        // 如果歌曲已在播放列表中，移动到下一首位置
-        const playlist = [...playerStore.playlist];
-        const [movedSong] = playlist.splice(existingIndex, 1);
-        playlist.splice(currentIndex + 1, 0, movedSong);
-        playerStore.playlist = playlist;
-        ElMessage.success(`已将《${song.name}》移至下一首播放`);
-    } else {
-        // 如果歌曲不在播放列表中，添加到下一首位置
-        playerStore.playlist.splice(currentIndex + 1, 0, song);
-        ElMessage.success(`已将《${song.name}》添加为下一首播放`);
-    }
-    closeContextMenu();
 };
 
 // 点击其他地方关闭右键菜单
@@ -233,30 +394,23 @@ onUnmounted(() => {
     height: 100vh;
     display: flex;
     flex-direction: column;
-    background: var(--el-bg-color);
+    background: white;
 
     .top-bar {
         display: flex;
         align-items: center;
         justify-content: space-between;
         padding: 16px 24px;
-        background: var(--el-bg-color);
-        border-bottom: 1px solid var(--el-border-color);
+        background: white;
+        border-bottom: 1px solid #f0f0f0;
+        flex-shrink: 0;
         gap: 20px;
 
-        .logo {
-            h1 {
-                margin: 0;
-                font-size: 20px;
-                color: var(--el-color-primary);
-                white-space: nowrap;
-            }
-        }
-
-        .actions {
+        .top-actions {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 8px;
+            flex-shrink: 0;
         }
     }
 
@@ -264,38 +418,35 @@ onUnmounted(() => {
         flex: 1;
         overflow-y: auto;
         padding: 0 0 70px 0;
+        background: white;
 
         .search-results-container {
             padding: 24px;
-            height: calc(100vh - 70px - 60px);
+            height: 100%;
             display: flex;
             flex-direction: column;
+            background: white;
 
             .results-header {
                 display: flex;
                 align-items: center;
                 gap: 16px;
                 margin-bottom: 16px;
-                padding-bottom: 12px;
-                border-bottom: 1px solid var(--el-border-color);
                 flex-shrink: 0;
 
                 h2 {
                     margin: 0;
-                    font-size: 20px;
+                    font-size: 18px;
                     font-weight: 600;
-                    color: var(--el-text-color-primary);
+                    color: #333;
                 }
 
                 .results-count {
-                    font-size: 14px;
-                    color: var(--el-text-color-secondary);
-
-                    .page-info {
-                        margin-left: 8px;
-                        color: var(--el-color-primary);
-                    }
+                    font-size: 13px;
+                    color: #999;
                 }
+
+
             }
 
             .results-wrapper {
@@ -310,21 +461,20 @@ onUnmounted(() => {
                 display: flex;
                 flex-direction: column;
                 overflow: hidden;
-                border-radius: 4px;
                 position: relative;
 
                 .table-header {
                     display: flex;
                     align-items: center;
-                    padding: 12px 16px;
-                    background: var(--el-fill-color-light);
-                    font-size: 13px;
-                    font-weight: 600;
-                    color: var(--el-text-color-secondary);
+                    padding: 10px 0;
+                    background: white;
+                    font-size: 12px;
+                    font-weight: 500;
+                    color: #999;
                     position: sticky;
                     top: 0;
                     z-index: 10;
-                    border-radius: 4px 4px 0 0;
+                    border-bottom: 1px solid #f0f0f0;
 
                     .col-index {
                         width: 50px;
@@ -361,13 +511,13 @@ onUnmounted(() => {
                     .table-row {
                         display: flex;
                         align-items: center;
-                        padding: 8px 16px;
+                        padding: 12px 0;
                         cursor: pointer;
                         transition: all 0.2s;
-                        border-radius: 4px;
+                        border-bottom: 1px solid #f7f7f7;
 
                         &:hover {
-                            background: var(--el-fill-color-light);
+                            background: #f7f7f7;
 
                             .col-actions {
                                 opacity: 1;
@@ -379,19 +529,29 @@ onUnmounted(() => {
                             flex-shrink: 0;
                             text-align: center;
                             font-size: 14px;
-                            color: var(--el-text-color-secondary);
+                            color: #999;
 
                             .playing-icon {
-                                color: var(--el-color-primary);
+                                color: #2878ff;
                                 font-size: 16px;
                             }
                         }
 
                         &.is-playing {
-                            background: var(--el-color-primary-light-9);
+                            background: #f0f5ff;
 
                             .col-name .song-name {
-                                color: var(--el-color-primary);
+                                color: #2878ff;
+                            }
+                        }
+
+                        &.is-selected {
+                            background: #e6f7ff !important;
+                            border-left: 3px solid #2878ff;
+                            padding-left: 13px;
+
+                            .col-name .song-name {
+                                font-weight: 500;
                             }
                         }
 
@@ -403,8 +563,8 @@ onUnmounted(() => {
 
                             .song-name {
                                 font-size: 14px;
-                                font-weight: 500;
-                                color: var(--el-text-color-primary);
+                                font-weight: 400;
+                                color: #333;
                                 overflow: hidden;
                                 text-overflow: ellipsis;
                                 white-space: nowrap;
@@ -415,7 +575,7 @@ onUnmounted(() => {
                             width: 180px;
                             flex-shrink: 0;
                             font-size: 13px;
-                            color: var(--el-text-color-secondary);
+                            color: #666;
                             overflow: hidden;
                             text-overflow: ellipsis;
                             white-space: nowrap;
@@ -425,7 +585,7 @@ onUnmounted(() => {
                             width: 200px;
                             flex-shrink: 0;
                             font-size: 13px;
-                            color: var(--el-text-color-secondary);
+                            color: #666;
                             overflow: hidden;
                             text-overflow: ellipsis;
                             white-space: nowrap;
@@ -503,6 +663,7 @@ onUnmounted(() => {
             align-items: center;
             justify-content: center;
             padding: 40px 24px 90px;
+            background: white;
 
             .empty-icon {
                 font-size: 120px;
@@ -515,16 +676,17 @@ onUnmounted(() => {
             align-items: center;
             justify-content: center;
             padding: 40px 24px 90px;
+            background: white;
 
             .current-playing {
                 text-align: center;
 
                 .large-cover {
-                    width: 300px;
-                    height: 300px;
-                    border-radius: 50%;
+                    width: 280px;
+                    height: 280px;
+                    border-radius: 8px;
                     object-fit: cover;
-                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
                     margin-bottom: 24px;
 
                     &.rotating {
@@ -533,15 +695,15 @@ onUnmounted(() => {
                 }
 
                 h2 {
-                    font-size: 28px;
+                    font-size: 24px;
                     font-weight: 600;
-                    color: var(--el-text-color-primary);
+                    color: #333;
                     margin: 0 0 12px 0;
                 }
 
                 p {
-                    font-size: 18px;
-                    color: var(--el-text-color-secondary);
+                    font-size: 16px;
+                    color: #666;
                     margin: 0;
                 }
             }
@@ -562,14 +724,19 @@ onUnmounted(() => {
 /* 右键菜单样式 */
 .context-menu {
     position: fixed;
-    background: var(--el-bg-color-overlay);
-    border: 1px solid var(--el-border-color);
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    background: white;
+    border: 1px solid #e5e5e7;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     padding: 4px 0;
-    min-width: 180px;
+    min-width: 160px;
     z-index: 9999;
-    backdrop-filter: blur(10px);
+
+    .menu-divider {
+        height: 1px;
+        background: #f0f0f0;
+        margin: 4px 0;
+    }
 
     .menu-item {
         display: flex;
@@ -578,27 +745,63 @@ onUnmounted(() => {
         padding: 10px 16px;
         cursor: pointer;
         transition: background 0.2s;
-        font-size: 14px;
-        color: var(--el-text-color-primary);
+        font-size: 13px;
+        color: #333;
+        position: relative;
 
         .el-icon {
             font-size: 16px;
-            color: var(--el-text-color-secondary);
+            color: #666;
+        }
+
+        .arrow-icon {
+            margin-left: auto;
+            font-size: 14px;
         }
 
         &:hover {
-            background: var(--el-fill-color-light);
+            background: #f7f7f7;
 
             .el-icon {
-                color: var(--el-color-primary);
+                color: #2878ff;
             }
         }
-    }
 
-    .menu-divider {
-        height: 1px;
-        background: var(--el-border-color-lighter);
-        margin: 4px 0;
+        &.submenu {
+            position: relative;
+
+            .submenu-content {
+                position: absolute;
+                left: 100%;
+                top: 0;
+                background: white;
+                border: 1px solid #e5e5e7;
+                border-radius: 6px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                padding: 4px 0;
+                min-width: 140px;
+                max-height: 300px;
+                overflow-y: auto;
+                z-index: 10000;
+
+                .submenu-item {
+                    padding: 10px 16px;
+                    font-size: 13px;
+                    color: #333;
+                    cursor: pointer;
+                    transition: background 0.2s;
+
+                    &:hover {
+                        background: #f7f7f7;
+                    }
+
+                    &.disabled {
+                        color: #999;
+                        cursor: not-allowed;
+                    }
+                }
+            }
+        }
     }
 }
 </style>
