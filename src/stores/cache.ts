@@ -4,7 +4,7 @@ import type { SongDetail } from "@/api/music";
 import { persist } from "@/utils/persist";
 
 const STORAGE_KEY = "music-song-cache";
-const MAX_CACHE_SIZE = 100; // 最多缓存100首歌曲
+const MAX_CACHE_SIZE = 120; // 最多缓存120首歌曲
 
 export const useCacheStore = defineStore("cache", () => {
   // 从 localStorage 加载缓存
@@ -103,15 +103,41 @@ export const useCacheStore = defineStore("cache", () => {
       return { count: 0, bytes: 0 };
     }
 
-    // 计算实际的JSON字符串大小
+    // 计算实际的localStorage存储大小
     try {
-      const cacheObj = Object.fromEntries(songCache.value);
-      const jsonString = JSON.stringify(cacheObj);
-      const bytes = new Blob([jsonString]).size;
-      return { count, bytes };
+      // 直接从localStorage读取，这样能获取真实的存储大小
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        // 使用字符串长度 * 2（因为JavaScript字符串是UTF-16编码）
+        const bytes = new Blob([stored]).size;
+        return { count, bytes };
+      }
+      return { count, bytes: 0 };
     } catch (error) {
       console.error("计算缓存大小失败:", error);
       return { count, bytes: 0 };
+    }
+  };
+
+  // 获取所有localStorage的总大小
+  const getTotalStorageSize = (): number => {
+    try {
+      let totalBytes = 0;
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key) {
+          const value = localStorage.getItem(key);
+          if (value) {
+            // 计算key和value的大小
+            totalBytes += new Blob([key]).size;
+            totalBytes += new Blob([value]).size;
+          }
+        }
+      }
+      return totalBytes;
+    } catch (error) {
+      console.error("计算总存储大小失败:", error);
+      return 0;
     }
   };
 
@@ -122,5 +148,6 @@ export const useCacheStore = defineStore("cache", () => {
     clearCache,
     getCacheSize,
     getCacheInfo,
+    getTotalStorageSize,
   };
 });

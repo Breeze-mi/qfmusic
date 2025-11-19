@@ -15,6 +15,9 @@ export type QualityLevel =
 // 搜索类型
 export type SearchType = "music" | "song" | "playlist" | "album";
 
+// 字体大小
+export type FontSize = "small" | "medium" | "large";
+
 const STORAGE_KEY = "music-player-settings";
 
 export const useSettingsStore = defineStore("settings", () => {
@@ -28,16 +31,27 @@ export const useSettingsStore = defineStore("settings", () => {
     } catch (error) {
       console.error("加载设置失败:", error);
     }
-    return { quality: "lossless", searchType: "music" };
+    return {
+      quality: "lossless",
+      searchType: "music",
+      fontSize: "medium",
+      apiBaseUrl: "",
+    };
   };
 
   const savedSettings = loadSettings();
 
   // 音质设置
-  const quality = ref<QualityLevel>(savedSettings.quality);
+  const quality = ref<QualityLevel>(savedSettings.quality || "lossless");
 
   // 搜索类型
-  const searchType = ref<SearchType>(savedSettings.searchType);
+  const searchType = ref<SearchType>(savedSettings.searchType || "music");
+
+  // 字体大小
+  const fontSize = ref<FontSize>(savedSettings.fontSize || "medium");
+
+  // API服务器地址（空字符串表示使用默认地址）
+  const apiBaseUrl = ref<string>(savedSettings.apiBaseUrl || "");
 
   // 标志：是否正在从其他标签页同步数据（避免循环广播）
   let isSyncing = false;
@@ -51,6 +65,8 @@ export const useSettingsStore = defineStore("settings", () => {
       const state = {
         quality: quality.value,
         searchType: searchType.value,
+        fontSize: fontSize.value,
+        apiBaseUrl: apiBaseUrl.value,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 
@@ -62,7 +78,7 @@ export const useSettingsStore = defineStore("settings", () => {
   };
 
   // 监听变化并自动保存
-  watch([quality, searchType], saveSettings);
+  watch([quality, searchType, fontSize, apiBaseUrl], saveSettings);
 
   // 订阅其他标签页的更新
   tabSync.subscribe("settings", (data) => {
@@ -72,6 +88,8 @@ export const useSettingsStore = defineStore("settings", () => {
     // 更新本地状态
     quality.value = data.quality || "lossless";
     searchType.value = data.searchType || "music";
+    fontSize.value = data.fontSize || "medium";
+    apiBaseUrl.value = data.apiBaseUrl || "";
 
     // 重置同步标志
     setTimeout(() => {
@@ -89,10 +107,51 @@ export const useSettingsStore = defineStore("settings", () => {
     searchType.value = type;
   };
 
+  // 设置字体大小
+  const setFontSize = (size: FontSize) => {
+    fontSize.value = size;
+    // 应用字体大小到根元素
+    applyFontSize(size);
+  };
+
+  // 应用字体大小
+  const applyFontSize = (size: FontSize) => {
+    const root = document.documentElement;
+    switch (size) {
+      case "small":
+        root.style.fontSize = "14px";
+        break;
+      case "medium":
+        root.style.fontSize = "16px";
+        break;
+      case "large":
+        root.style.fontSize = "18px";
+        break;
+    }
+  };
+
+  // 初始化时应用字体大小
+  applyFontSize(fontSize.value);
+
+  // 设置API地址
+  const setApiBaseUrl = (url: string) => {
+    apiBaseUrl.value = url;
+  };
+
+  // 检查是否在Electron环境
+  const isElectron = () => {
+    return !!(window as any).electronAPI;
+  };
+
   return {
     quality,
     searchType,
+    fontSize,
+    apiBaseUrl,
     setQuality,
     setSearchType,
+    setFontSize,
+    setApiBaseUrl,
+    isElectron,
   };
 });
