@@ -1,11 +1,21 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
+import { useSettingsStore } from "./settings";
 
 // 音频缓存数据库配置
 const DB_NAME = "AudioCacheDB";
 const DB_VERSION = 1;
 const AUDIO_STORE = "audioFiles";
 const METADATA_STORE = "audioMetadata";
+
+// Electron IPC 类型定义
+declare global {
+  interface Window {
+    electron?: {
+      invoke(channel: string, ...args: any[]): Promise<any>;
+    };
+  }
+}
 
 // 音频元数据
 interface AudioMetadata {
@@ -24,9 +34,13 @@ const CACHE_EXPIRY_DAYS = 2; // 缓存2天后清理
 const URL_EXPIRY_HOURS = 6; // URL 6 小时后可能过期
 
 export const useAudioCacheStore = defineStore("audioCache", () => {
+  const settingsStore = useSettingsStore();
   const db = ref<IDBDatabase | null>(null);
   const isInitialized = ref(false);
   const downloadingSet = ref<Set<string>>(new Set()); // 正在下载的歌曲集合
+
+  // 检查是否应该使用文件系统缓存（Electron 生产环境）
+  const shouldUseFileSystem = () => settingsStore.shouldUseFileSystemCache();
 
   // 初始化数据库
   const init = async (): Promise<void> => {
@@ -218,8 +232,6 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
     url: string,
     quality: string
   ): Promise<void> => {
-    if (!db.value) await init();
-
     const now = Date.now();
     const metadata: AudioMetadata = {
       songId,
@@ -230,6 +242,35 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       quality,
       expiresAt: now + URL_EXPIRY_HOURS * 60 * 60 * 1000,
     };
+
+    // Electron 生产环境：保存到文件系统
+    if (shouldUseFileSystem()) {
+      try {
+        // 将 Blob 转换为 ArrayBuffer
+        const arrayBuffer = await blob.arrayBuffer();
+
+        // 通过 IPC 保存到文件系统
+        const result = await window.electron?.invoke(
+          "save-audio-cache",
+          songId,
+          arrayBuffer,
+          metadata
+        );
+
+        if (result?.success) {
+          console.log(`音频缓存已保存到文件系统: ${songId}`);
+          return;
+        } else {
+          throw new Error(result?.error || "保存到文件系统失败");
+        }
+      } catch (error) {
+        console.error("保存到文件系统失败，回退到 IndexedDB:", error);
+        // 如果文件系统保存失败，回退到 IndexedDB
+      }
+    }
+
+    // Web 环境或 Electron 开发环境：保存到 IndexedDB
+    if (!db.value) await init();
 
     // 保存音频文件
     await new Promise<void>((resolve, reject) => {
@@ -358,6 +399,18 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
 
   // 清空所有缓存
   const clearAllCache = async (): Promise<void> => {
+    // Electron 生产环境：清空文件系统缓存
+    if (shouldUseFileSystem()) {
+      const result = await window.electron?.invoke("clear-audio-cache");
+      if (result?.success) {
+        console.log("文件系统音频缓存已清空");
+        return;
+      } else {
+        throw new Error(result?.error || "清空文件系统缓存失败");
+      }
+    }
+
+    // Web 环境或 Electron 开发环境：清空 IndexedDB
     if (!db.value) await init();
 
     await new Promise<void>((resolve, reject) => {
@@ -385,7 +438,7 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       metadataRequest.onerror = () => reject(metadataRequest.error);
     });
 
-    console.log("所有音频缓存已清空");
+    console.log("IndexedDB 音频缓存已清空");
   };
 
   // 获取缓存统计信息
@@ -394,6 +447,19 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
     totalSize: number;
   }> => {
     try {
+      // Electron 生产环境：从文件系统获取
+      if (shouldUseFileSystem()) {
+        const result = await window.electron?.invoke("get-audio-cache-size");
+        if (result?.success) {
+          return {
+            count: 0, // 文件系统不统计数量
+            totalSize: result.size || 0,
+          };
+        }
+        return { count: 0, totalSize: 0 };
+      }
+
+      // Web 环境或 Electron 开发环境：使用 IndexedDB
       const allMetadata = await getAllMetadata();
 
       // 计算实际 Blob 大小（更准确）

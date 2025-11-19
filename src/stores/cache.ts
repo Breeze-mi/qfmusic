@@ -91,6 +91,30 @@ export const useCacheStore = defineStore("cache", () => {
     console.log("已清空所有缓存");
   };
 
+  // 清空歌词缓存
+  const clearLyricCache = () => {
+    // 遍历所有缓存，清除歌词字段
+    songCache.value.forEach((song) => {
+      if (song.lyric) {
+        song.lyric = "";
+      }
+    });
+    saveCache();
+    console.log("已清空歌词缓存");
+  };
+
+  // 清空封面缓存
+  const clearCoverCache = () => {
+    // 遍历所有缓存，清除封面字段
+    songCache.value.forEach((song) => {
+      if (song.pic) {
+        song.pic = "";
+      }
+    });
+    saveCache();
+    console.log("已清空封面缓存");
+  };
+
   // 获取缓存大小（歌曲数量）
   const getCacheSize = (): number => {
     return songCache.value.size;
@@ -146,6 +170,8 @@ export const useCacheStore = defineStore("cache", () => {
     setCachedSong,
     hasCachedSong,
     clearCache,
+    clearLyricCache,
+    clearCoverCache,
     getCacheSize,
     getCacheInfo,
     getTotalStorageSize,

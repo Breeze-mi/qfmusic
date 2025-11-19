@@ -91,27 +91,10 @@ const cacheStore = useCacheStore();
 const settingsStore = useSettingsStore();
 const themeStore = useThemeStore();
 
-// 安全地初始化新的stores
-let playlistStore: ReturnType<typeof usePlaylistStore> | undefined;
-let localMusicStore: ReturnType<typeof useLocalMusicStore> | undefined;
-let audioCacheStore: ReturnType<typeof useAudioCacheStore> | undefined;
-try {
-    playlistStore = usePlaylistStore();
-    localMusicStore = useLocalMusicStore();
-    audioCacheStore = useAudioCacheStore();
-} catch (error) {
-    console.error("初始化store失败:", error);
-    // 提供默认的空实现
-    playlistStore = {
-        addToHistory: () => { },
-        isFavorite: () => false,
-        toggleFavorite: () => false,
-    } as any;
-    localMusicStore = {
-        isLocalMusic: () => false,
-        getLocalFile: () => null,
-    } as any;
-}
+// 初始化所有 stores
+const playlistStore = usePlaylistStore();
+const localMusicStore = useLocalMusicStore();
+const audioCacheStore = useAudioCacheStore();
 
 const audioRef = ref<HTMLAudioElement>();
 
@@ -479,7 +462,6 @@ watch(
 
                 // 2. 获取歌曲详情（用于显示信息和获取URL）
                 let songDetail = cacheStore.getCachedSong(newSong.id);
-                let needFetchDetail = !songDetail;
 
                 if (!songDetail) {
                     console.log(`📡 请求API获取歌曲信息: ${newSong.name}, 音质: ${settingsStore.quality}`);

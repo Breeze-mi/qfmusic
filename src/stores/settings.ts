@@ -143,6 +143,21 @@ export const useSettingsStore = defineStore("settings", () => {
     return !!(window as any).electronAPI;
   };
 
+  // 检查是否为生产环境
+  const isProduction = () => {
+    return import.meta.env.PROD;
+  };
+
+  // 检查是否为开发环境
+  const isDevelopment = () => {
+    return import.meta.env.DEV;
+  };
+
+  // 检查是否应该使用文件系统缓存（Electron 生产环境）
+  const shouldUseFileSystemCache = () => {
+    return isElectron() && isProduction();
+  };
+
   return {
     quality,
     searchType,
@@ -153,5 +168,8 @@ export const useSettingsStore = defineStore("settings", () => {
     setFontSize,
     setApiBaseUrl,
     isElectron,
+    isProduction,
+    isDevelopment,
+    shouldUseFileSystemCache,
   };
 });

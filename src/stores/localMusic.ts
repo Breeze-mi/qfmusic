@@ -3,6 +3,8 @@ import { ref } from "vue";
 import type { Song } from "@/api/music";
 import { StorageFactory } from "@/storage/storageFactory";
 import type { TrackMetadata } from "@/storage/interface";
+import { useCacheStore } from "./cache";
+import { useAudioCacheStore } from "./audioCache";
 
 // 本地音乐文件信息
 export interface LocalMusicFile extends Song {
@@ -260,6 +262,26 @@ export const useLocalMusicStore = defineStore("localMusic", () => {
         console.log(`文件已删除: ${file.name}`);
       } catch (error) {
         console.error("删除文件失败:", error);
+      }
+
+      // 清理相关缓存
+      try {
+        const cacheStore = useCacheStore();
+        const audioCacheStore = useAudioCacheStore();
+
+        // 清理歌曲信息缓存
+        if (cacheStore.hasCachedSong(id)) {
+          cacheStore.setCachedSong(id, undefined);
+          console.log(`已清理歌曲信息缓存: ${id}`);
+        }
+
+        // 清理音频缓存
+        if (await audioCacheStore.hasValidCache(id)) {
+          await audioCacheStore.deleteCache(id);
+          console.log(`已清理音频缓存: ${id}`);
+        }
+      } catch (error) {
+        console.error("清理缓存失败:", error);
       }
 
       // 从列表删除

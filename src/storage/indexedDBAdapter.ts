@@ -212,25 +212,37 @@ export class IndexedDBAdapter implements IStorageAdapter {
 
   async getStorageInfo(): Promise<StorageInfo> {
     try {
+      // 计算本地音乐实际占用的空间
+      const tracks = await this.listTracks();
+      let used = 0;
+
+      for (const track of tracks) {
+        used += track.fileSize;
+      }
+
+      // 获取浏览器存储配额
+      let quota = 0;
+      let isPersistent = false;
+
       if (navigator.storage && navigator.storage.estimate) {
         const estimate = await navigator.storage.estimate();
-        const isPersistent = await this.checkPersistence();
-
-        return {
-          used: estimate.usage || 0,
-          quota: estimate.quota || 0,
-          isPersistent,
-        };
+        quota = estimate.quota || 0;
+        isPersistent = await this.checkPersistence();
       }
+
+      return {
+        used,
+        quota,
+        isPersistent,
+      };
     } catch (error) {
       console.error("获取存储信息失败:", error);
+      return {
+        used: 0,
+        quota: 0,
+        isPersistent: false,
+      };
     }
-
-    return {
-      used: 0,
-      quota: 0,
-      isPersistent: false,
-    };
   }
 
   async requestPersistence(): Promise<boolean> {

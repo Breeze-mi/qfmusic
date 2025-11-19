@@ -43,3 +43,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return ipcRenderer.invoke("clear-local-music");
   },
 });
+
+// 缓存管理 API
+contextBridge.exposeInMainWorld("electron", {
+  invoke(channel: string, ...args: any[]) {
+    return ipcRenderer.invoke(channel, ...args);
+  },
+});
