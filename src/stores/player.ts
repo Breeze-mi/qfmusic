@@ -86,19 +86,25 @@ export const usePlayerStore = defineStore("player", () => {
     volume.value = data.volume ?? 0.7;
     savedProgress.value = data.savedProgress || {};
 
+    // ✅ 更新 currentSong
+    if (currentIndex.value >= 0 && currentIndex.value < playlist.value.length) {
+      currentSong.value = playlist.value[currentIndex.value];
+    } else {
+      currentSong.value = null;
+    }
+
     // 重置同步标志
     setTimeout(() => {
       isSyncing = false;
     }, 0);
   });
 
-  // 当前播放歌曲
-  const currentSong = computed(() => {
-    if (currentIndex.value >= 0 && currentIndex.value < playlist.value.length) {
-      return playlist.value[currentIndex.value];
-    }
-    return null;
-  });
+  // 当前播放歌曲（直接存储，避免 computed 的多次触发）
+  const currentSong = ref<Song | null>(
+    currentIndex.value >= 0 && currentIndex.value < savedState.playlist.length
+      ? savedState.playlist[currentIndex.value]
+      : null
+  );
 
   // 播放进度 (0-100)
   const progress = computed(() => {
@@ -126,14 +132,19 @@ export const usePlayerStore = defineStore("player", () => {
     const index = playlist.value.findIndex((s) => s.id === song.id);
     if (index === -1) {
       // 歌曲不在播放列表中，添加到列表末尾
+      const newIndex = playlist.value.length;
       playlist.value.push(song);
-      currentIndex.value = playlist.value.length - 1;
+      currentIndex.value = newIndex;
+      // ✅ 直接设置 currentSong，避免 computed 的多次触发
+      currentSong.value = song;
       console.log(
-        `添加歌曲到播放列表: ${song.name}, 当前列表长度: ${playlist.value.length}`
+        `添加歌曲到播放列表: ${song.name}, 当前列表长度: ${playlist.value.length}, 索引: ${newIndex}`
       );
     } else {
       // 歌曲已在播放列表中，直接切换到该歌曲
       currentIndex.value = index;
+      // ✅ 直接设置 currentSong，避免 computed 的多次触发
+      currentSong.value = song;
       console.log(`切换到播放列表中的歌曲: ${song.name}, 索引: ${index}`);
     }
     isPlaying.value = true;
@@ -148,31 +159,72 @@ export const usePlayerStore = defineStore("player", () => {
   const playPrev = () => {
     if (playlist.value.length === 0) return;
 
+    let newIndex: number;
     if (playMode.value === PlayMode.RANDOM) {
-      currentIndex.value = Math.floor(Math.random() * playlist.value.length);
+      newIndex = Math.floor(Math.random() * playlist.value.length);
     } else {
-      currentIndex.value =
+      newIndex =
         currentIndex.value <= 0
           ? playlist.value.length - 1
           : currentIndex.value - 1;
     }
+
+    // ✅ 确保索引有效
+    if (newIndex < 0 || newIndex >= playlist.value.length) {
+      console.error(
+        `playPrev: 无效的索引 ${newIndex}, 播放列表长度: ${playlist.value.length}`
+      );
+      newIndex = 0;
+    }
+
+    currentIndex.value = newIndex;
+    // ✅ 直接设置 currentSong
+    currentSong.value = playlist.value[newIndex];
+    console.log(
+      `playPrev: 切换到索引 ${newIndex}, 歌曲: ${currentSong.value?.name}`
+    );
     isPlaying.value = true;
   };
 
   // 下一首
   const playNext = () => {
-    if (playlist.value.length === 0) return;
+    console.log(
+      `🔄 playNext 被调用, 当前索引: ${currentIndex.value}, 播放列表长度: ${playlist.value.length}`
+    );
+
+    if (playlist.value.length === 0) {
+      console.log(`⚠️ playNext: 播放列表为空`);
+      return;
+    }
 
     // 单曲循环只在歌曲自然结束时生效
 
+    let newIndex: number;
     if (playMode.value === PlayMode.RANDOM) {
-      currentIndex.value = Math.floor(Math.random() * playlist.value.length);
+      newIndex = Math.floor(Math.random() * playlist.value.length);
     } else {
-      currentIndex.value =
+      newIndex =
         currentIndex.value >= playlist.value.length - 1
           ? 0
           : currentIndex.value + 1;
     }
+
+    console.log(`📍 计算的新索引: ${newIndex}`);
+
+    // ✅ 确保索引有效
+    if (newIndex < 0 || newIndex >= playlist.value.length) {
+      console.error(
+        `playNext: 无效的索引 ${newIndex}, 播放列表长度: ${playlist.value.length}`
+      );
+      newIndex = 0;
+    }
+
+    currentIndex.value = newIndex;
+    // ✅ 直接设置 currentSong
+    currentSong.value = playlist.value[newIndex];
+    console.log(
+      `✅ playNext: 切换到索引 ${newIndex}, 歌曲: ${currentSong.value?.name}`
+    );
     isPlaying.value = true;
   };
 
@@ -191,6 +243,7 @@ export const usePlayerStore = defineStore("player", () => {
       if (playlist.value.length === 1) {
         playlist.value = [];
         currentIndex.value = -1;
+        currentSong.value = null;
         isPlaying.value = false;
         currentSongDetail.value = null;
         return;
@@ -198,11 +251,15 @@ export const usePlayerStore = defineStore("player", () => {
       // 如果删除的是最后一首，播放第一首
       if (index === playlist.value.length - 1) {
         currentIndex.value = 0;
+        currentSong.value = playlist.value[0];
+      } else {
+        // 否则保持当前索引，会自动播放下一首
+        currentSong.value = playlist.value[currentIndex.value];
       }
-      // 否则保持当前索引，会自动播放下一首
     } else if (index < currentIndex.value) {
       // 如果删除的歌曲在当前播放歌曲之前，索引需要减1
       currentIndex.value--;
+      currentSong.value = playlist.value[currentIndex.value];
     }
     playlist.value.splice(index, 1);
   };
@@ -211,6 +268,7 @@ export const usePlayerStore = defineStore("player", () => {
   const clearPlaylist = () => {
     playlist.value = [];
     currentIndex.value = -1;
+    currentSong.value = null;
     isPlaying.value = false;
     currentSongDetail.value = null;
   };

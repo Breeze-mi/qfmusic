@@ -2,12 +2,12 @@
     <div class="player-bar">
         <!-- 左侧：歌曲信息 -->
         <div class="song-info" @click="goToDetail">
-            <div v-if="playerStore.currentSong" class="song-cover-wrapper">
+            <div v-if="playerStore.currentSong" class="song-cover-wrapper" :key="playerStore.currentSong.id">
                 <img v-if="playerStore.currentSong.picUrl" :src="playerStore.currentSong.picUrl"
-                    :alt="playerStore.currentSong.name" class="song-cover" loading="lazy" @error="handleImageError" />
+                    :alt="playerStore.currentSong.name" class="song-cover" loading="eager" @error="handleImageError" />
                 <div v-else class="song-cover-placeholder">🎵</div>
             </div>
-            <div v-if="playerStore.currentSong" class="song-details">
+            <div v-if="playerStore.currentSong" class="song-details" :key="playerStore.currentSong.id">
                 <div class="song-name">{{ playerStore.currentSong.name }}</div>
                 <div class="song-artist">{{ playerStore.currentSong.artists }}</div>
             </div>
@@ -101,12 +101,24 @@ const audioRef = ref<HTMLAudioElement>();
 // 当前使用的 Blob URL（用于释放内存）
 const currentBlobUrl = ref<string | null>(null);
 
+// 后台缓存的定时器 ID
+const cacheTimerId = ref<number | null>(null);
+
 // 释放 Blob URL，防止内存泄漏
 const revokeBlobUrl = () => {
     if (currentBlobUrl.value && currentBlobUrl.value.startsWith('blob:')) {
         URL.revokeObjectURL(currentBlobUrl.value);
         console.log('🗑️ 释放 Blob URL，防止内存泄漏');
         currentBlobUrl.value = null;
+    }
+};
+
+// 清除后台缓存定时器
+const clearCacheTimer = () => {
+    if (cacheTimerId.value !== null) {
+        clearTimeout(cacheTimerId.value);
+        cacheTimerId.value = null;
+        console.log('⏹️ 清除后台缓存定时器');
     }
 };
 
@@ -317,6 +329,8 @@ const handleSongLoadError = (message: string, clearSource: boolean = true) => {
 };
 
 // 平滑淡出函数，使用指数衰减曲线，避免切歌时的爆音
+// 注意：当前未使用，因为异步淡出会导致音频残留，改用同步方式
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const fadeOut = async (duration: number = 20): Promise<void> => {
     if (!audioRef.value) return;
 
@@ -357,19 +371,37 @@ watch(
                 return;
             }
 
+            // ✅ 立即设置 currentLoadingSongId，防止重复触发
             currentLoadingSongId.value = newSong.id;
             const wasPlaying = playerStore.isPlaying;
 
-            // 如果有旧歌曲正在播放，先平滑淡出
+            // ✅ 关键修复：立即停止播放，防止残留音频
+            // 不使用异步淡出，直接暂停以避免残留音频
             if (oldSong && !audioRef.value.paused) {
-                await fadeOut(20); // 20ms 极速淡出
+                // 立即将音量设为 0，避免爆音
+                audioRef.value.volume = 0;
             }
 
-            // 立即暂停并重置
+            // 立即暂停播放
             audioRef.value.pause();
             audioRef.value.currentTime = 0;
 
-            // 立即恢复正确的音量，不要延迟
+            // ✅ 立即设置一个空的 data URL，彻底停止旧音频的加载和缓冲
+            // 使用极小的静音音频 data URL，避免触发错误事件
+            audioRef.value.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+
+            // ✅ 释放旧的 Blob URL（如果有）
+            revokeBlobUrl();
+
+            // ✅ 清除后台缓存定时器
+            clearCacheTimer();
+
+            // ✅ 中止所有正在进行的后台下载，避免抢占带宽
+            if (audioCacheStore) {
+                audioCacheStore.abortAllDownloads();
+            }
+
+            // ✅ 恢复音量
             audioRef.value.volume = playerStore.volume;
 
             // 异步添加到试听列表，不阻塞切歌流程
@@ -500,40 +532,50 @@ watch(
                     return;
                 }
 
+                // ✅ 在设置音频源之前，检查是否还是当前要加载的歌曲
+                if (currentLoadingSongId.value !== newSong.id) {
+                    console.log(`⚠️ 歌曲已切换，放弃加载: ${newSong.name}`);
+                    return;
+                }
+
                 playerStore.setCurrentSongDetail(songDetail as SongDetail);
 
                 // 3. 设置音频源（优先使用缓存）
                 if (isFromAudioCache && audioUrl) {
-                    // 释放旧的 Blob URL
-                    revokeBlobUrl();
-
                     // ✅ 使用缓存的音频文件（Blob URL，完全离线）
-                    currentBlobUrl.value = audioUrl;
                     audioRef.value.src = audioUrl;
-                    console.log(`🎵 播放缓存音频: ${newSong.name}`);
+                    currentBlobUrl.value = audioUrl;
+
+                    console.log(`� 播放缓线存音频: ${newSong.name}`);
                     console.log(`📍 Blob URL: ${audioUrl.substring(0, 50)}...`);
                 } else {
-                    // 释放旧的 Blob URL（如果有）
-                    revokeBlobUrl();
+                    // ✅ 使用在线音频
                     audioRef.value.src = songDetail.url;
+
                     console.log(`🌐 播放在线音频（直接URL）: ${newSong.name}`);
                     console.log(`📍 音频URL: ${songDetail.url.substring(0, 100)}...`);
 
                     // 异步下载并缓存音频文件（不阻塞播放）
                     if (audioCacheStore && songDetail.url && songDetail.url.trim() !== '') {
-                        setTimeout(async () => {
+                        // ✅ 保存定时器 ID，以便切歌时可以取消
+                        cacheTimerId.value = setTimeout(async () => {
                             try {
                                 console.log(`⬇️ 开始后台缓存音频: ${newSong.name}`);
-                                await audioCacheStore!.downloadAndCache(
+                                const result = await audioCacheStore!.downloadAndCache(
                                     newSong.id,
                                     songDetail!.url,
                                     settingsStore.quality
                                 );
-                                console.log(`✅ 音频文件已缓存: ${newSong.name}`);
+                                // ✅ 只有成功下载才显示成功日志
+                                if (result) {
+                                    console.log(`✅ 音频文件已缓存: ${newSong.name}`);
+                                }
                             } catch (error) {
                                 console.error("❌ 缓存音频文件失败:", error);
+                            } finally {
+                                cacheTimerId.value = null;
                             }
-                        }, 3000); // 延迟3秒开始下载，确保播放流畅
+                        }, 3000) as unknown as number; // 延迟3秒开始下载，确保播放流畅
                     }
                 }
 
@@ -688,6 +730,12 @@ const handleLoadedMetadata = () => {
 const handleEnded = () => {
     if (import.meta.env.DEV) {
         console.log("歌曲播放结束，当前模式:", playerStore.playMode);
+    }
+
+    // ✅ 如果当前 src 是 data URL（临时的静音音频），忽略 ended 事件
+    if (audioRef.value && audioRef.value.src.startsWith('data:audio/wav')) {
+        console.log("⏭️ 忽略 data URL 的 ended 事件");
+        return;
     }
 
     // 单曲循环模式：重新播放当前歌曲

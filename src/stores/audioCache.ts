@@ -38,6 +38,7 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
   const db = ref<IDBDatabase | null>(null);
   const isInitialized = ref(false);
   const downloadingSet = ref<Set<string>>(new Set()); // 正在下载的歌曲集合
+  const abortControllers = ref<Map<string, AbortController>>(new Map()); // 下载控制器
 
   // 检查是否应该使用文件系统缓存（Electron 生产环境）
   const shouldUseFileSystem = () => settingsStore.shouldUseFileSystemCache();
@@ -187,10 +188,16 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       // 标记为下载中
       downloadingSet.value.add(songId);
 
+      // 创建 AbortController 用于中止下载
+      const abortController = new AbortController();
+      abortControllers.value.set(songId, abortController);
+
       console.log(`开始下载音频: ${songId}, 音质: ${quality}`);
       console.log(`音频 URL: ${audioUrl.substring(0, 100)}...`);
 
-      const response = await fetch(audioUrl);
+      const response = await fetch(audioUrl, {
+        signal: abortController.signal,
+      });
       if (!response.ok) {
         throw new Error(`下载失败: ${response.status}`);
       }
@@ -217,11 +224,42 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
 
       return blob;
     } catch (error) {
-      console.error("下载并缓存音频失败:", error);
+      // 如果是中止错误，不打印错误日志
+      if (error instanceof Error && error.name === "AbortError") {
+        console.log(`⏹️ 下载已中止: ${songId}`);
+      } else {
+        console.error("下载并缓存音频失败:", error);
+      }
       return null;
     } finally {
-      // 无论成功或失败，都移除下载标记
+      // 无论成功或失败，都移除下载标记和控制器
       downloadingSet.value.delete(songId);
+      abortControllers.value.delete(songId);
+    }
+  };
+
+  // 中止指定歌曲的下载
+  const abortDownload = (songId: string): void => {
+    const controller = abortControllers.value.get(songId);
+    if (controller) {
+      controller.abort();
+      abortControllers.value.delete(songId);
+      downloadingSet.value.delete(songId);
+      console.log(`🛑 已中止下载: ${songId}`);
+    }
+  };
+
+  // 中止所有正在进行的下载
+  const abortAllDownloads = (): void => {
+    const count = abortControllers.value.size;
+    if (count > 0) {
+      abortControllers.value.forEach((controller, songId) => {
+        controller.abort();
+        console.log(`🛑 已中止下载: ${songId}`);
+      });
+      abortControllers.value.clear();
+      downloadingSet.value.clear();
+      console.log(`🛑 已中止所有下载，共 ${count} 个`);
     }
   };
 
@@ -519,6 +557,8 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
     getCachedAudio,
     getCachedAudioURL,
     downloadAndCache,
+    abortDownload,
+    abortAllDownloads,
     deleteCache,
     clearAllCache,
     getCacheStats,
