@@ -5,22 +5,47 @@ import { persist } from "@/utils/persist";
 
 const STORAGE_KEY = "music-song-cache";
 const MAX_CACHE_SIZE = 120; // 最多缓存120首歌曲
+const URL_EXPIRY_TIME = 4* 60 * 60 * 1000; // URL有效期：4小时（留2小时缓冲）
+
+// 歌曲缓存项（带过期时间）
+interface CachedSongItem {
+  song: SongDetail;
+  cachedAt: number;
+  expiresAt: number;
+}
 
 export const useCacheStore = defineStore("cache", () => {
   // 从 localStorage 加载缓存
-  const loadCache = (): Map<string, SongDetail> => {
+  const loadCache = (): Map<string, CachedSongItem> => {
     try {
       const saved = persist.load(STORAGE_KEY, { cache: {} });
       const cacheObj = saved.cache || {};
-      return new Map(Object.entries(cacheObj));
+      const map = new Map<string, CachedSongItem>();
+
+      // 加载时过滤掉已过期的缓存
+      const now = Date.now();
+      Object.entries(cacheObj).forEach(([key, value]) => {
+        const item = value as any;
+        // 如果是旧格式（没有 expiresAt），跳过
+        if (!item.expiresAt) {
+          return;
+        }
+        // 如果已过期，跳过
+        if (now > item.expiresAt) {
+          return;
+        }
+        map.set(key, item as CachedSongItem);
+      });
+
+      return map;
     } catch (error) {
       console.error("加载缓存失败:", error);
       return new Map();
     }
   };
 
-  // 歌曲详情缓存 Map<songId, SongDetail>
-  const songCache = ref<Map<string, SongDetail>>(loadCache());
+  // 歌曲详情缓存 Map<songId, CachedSongItem>
+  const songCache = ref<Map<string, CachedSongItem>>(loadCache());
 
   // 保存缓存到 localStorage
   const saveCache = () => {
@@ -50,7 +75,18 @@ export const useCacheStore = defineStore("cache", () => {
 
   // 获取缓存的歌曲详情
   const getCachedSong = (songId: string): SongDetail | undefined => {
-    return songCache.value.get(songId);
+    const cached = songCache.value.get(songId);
+    if (!cached) return undefined;
+
+    // 检查是否过期
+    const now = Date.now();
+    if (now > cached.expiresAt) {
+      console.log(`⏰ 缓存已过期: ${songId}`);
+      songCache.value.delete(songId);
+      return undefined;
+    }
+
+    return cached.song;
   };
 
   // 设置歌曲详情缓存
@@ -68,7 +104,12 @@ export const useCacheStore = defineStore("cache", () => {
         }
       }
 
-      songCache.value.set(songId, songDetail);
+      const now = Date.now();
+      songCache.value.set(songId, {
+        song: songDetail,
+        cachedAt: now,
+        expiresAt: now + URL_EXPIRY_TIME,
+      });
       console.log(`缓存歌曲: ${songId}, 当前缓存数量: ${songCache.value.size}`);
     } else {
       // 如果 songDetail 为 undefined，删除缓存
@@ -81,7 +122,17 @@ export const useCacheStore = defineStore("cache", () => {
 
   // 检查是否有缓存
   const hasCachedSong = (songId: string): boolean => {
-    return songCache.value.has(songId);
+    const cached = songCache.value.get(songId);
+    if (!cached) return false;
+
+    // 检查是否过期
+    const now = Date.now();
+    if (now > cached.expiresAt) {
+      songCache.value.delete(songId);
+      return false;
+    }
+
+    return true;
   };
 
   // 清空缓存
@@ -94,9 +145,9 @@ export const useCacheStore = defineStore("cache", () => {
   // 清空歌词缓存
   const clearLyricCache = () => {
     // 遍历所有缓存，清除歌词字段
-    songCache.value.forEach((song) => {
-      if (song.lyric) {
-        song.lyric = "";
+    songCache.value.forEach((item) => {
+      if (item.song.lyric) {
+        item.song.lyric = "";
       }
     });
     saveCache();
@@ -106,9 +157,9 @@ export const useCacheStore = defineStore("cache", () => {
   // 清空封面缓存
   const clearCoverCache = () => {
     // 遍历所有缓存，清除封面字段
-    songCache.value.forEach((song) => {
-      if (song.pic) {
-        song.pic = "";
+    songCache.value.forEach((item) => {
+      if (item.song.pic) {
+        item.song.pic = "";
       }
     });
     saveCache();

@@ -2,14 +2,21 @@
     <div class="player-bar">
         <!-- 左侧：歌曲信息 -->
         <div class="song-info" @click="goToDetail">
-            <div v-if="playerStore.currentSong" class="song-cover-wrapper" :key="playerStore.currentSong.id">
-                <img v-if="playerStore.currentSong.picUrl" :src="playerStore.currentSong.picUrl"
+            <!-- 封面区域：始终显示，确保可点击 -->
+            <div class="song-cover-wrapper" :key="playerStore.currentSong?.id || 'no-song'">
+                <img v-if="playerStore.currentSong?.picUrl" :src="playerStore.currentSong.picUrl"
                     :alt="playerStore.currentSong.name" class="song-cover" loading="eager" @error="handleImageError" />
                 <div v-else class="song-cover-placeholder">🎵</div>
             </div>
+            <!-- 歌曲详情：有歌曲时显示 -->
             <div v-if="playerStore.currentSong" class="song-details" :key="playerStore.currentSong.id">
                 <div class="song-name">{{ playerStore.currentSong.name }}</div>
                 <div class="song-artist">{{ playerStore.currentSong.artists }}</div>
+            </div>
+            <!-- 无歌曲时的占位文本 -->
+            <div v-else class="song-details">
+                <div class="song-name">暂无播放</div>
+                <div class="song-artist">点击搜索歌曲</div>
             </div>
         </div>
 
@@ -124,13 +131,11 @@ const clearCacheTimer = () => {
 
 // 跳转到详情页或返回
 const goToDetail = () => {
-    if (!playerStore.currentSong) return;
-
     // 如果当前在详情页，则返回
     if (router.currentRoute.value.path === "/song-detail") {
         router.back();
     } else {
-        // 否则跳转到详情页
+        // 否则跳转到详情页（即使没有歌曲也可以跳转）
         router.push("/song-detail");
     }
 };
@@ -356,6 +361,9 @@ const fadeOut = async (duration: number = 20): Promise<void> => {
 // 记录当前加载的歌曲ID，防止重复加载
 let currentLoadingSongId = ref<string | null>(null);
 
+// 正在重试的歌曲集合，防止并发重试
+const retryingSet = ref<Set<string>>(new Set());
+
 // 监听当前歌曲变化，加载音频
 watch(
     () => playerStore.currentSong,
@@ -560,10 +568,17 @@ watch(
                         // ✅ 保存定时器 ID，以便切歌时可以取消
                         cacheTimerId.value = setTimeout(async () => {
                             try {
+                                // ✅ 检查缓存是否还有效（URL 可能已过期）
+                                const cachedSong = cacheStore.getCachedSong(newSong.id);
+                                if (!cachedSong || !cachedSong.url) {
+                                    console.log(`⚠️ 缓存已过期，跳过后台下载: ${newSong.name}`);
+                                    return;
+                                }
+
                                 console.log(`⬇️ 开始后台缓存音频: ${newSong.name}`);
                                 const result = await audioCacheStore!.downloadAndCache(
                                     newSong.id,
-                                    songDetail!.url,
+                                    cachedSong.url,  // ✅ 使用最新的 URL
                                     settingsStore.quality
                                 );
                                 // ✅ 只有成功下载才显示成功日志
@@ -571,7 +586,13 @@ watch(
                                     console.log(`✅ 音频文件已缓存: ${newSong.name}`);
                                 }
                             } catch (error) {
-                                console.error("❌ 缓存音频文件失败:", error);
+                                // ✅ 如果是 403 错误，清除缓存
+                                if (error instanceof Error && error.message.includes('403')) {
+                                    console.warn(`⚠️ URL 已过期，清除缓存: ${newSong.name}`);
+                                    cacheStore.setCachedSong(newSong.id, undefined);
+                                } else {
+                                    console.error("❌ 缓存音频文件失败:", error);
+                                }
                             } finally {
                                 cacheTimerId.value = null;
                             }
@@ -583,42 +604,64 @@ watch(
                 const handleLoadError = async () => {
                     console.error(`音频加载失败: ${newSong.name}`);
 
-                    // 移除错误监听器，避免重复触发
-                    audioRef.value?.removeEventListener('error', handleLoadError);
-
-                    // 如果使用的是音频文件缓存（Blob URL），清除失效的缓存
-                    if (isFromAudioCache && audioCacheStore) {
-                        console.log(`清除失效的音频缓存: ${newSong.name}`);
-                        await audioCacheStore.deleteCache(newSong.id);
+                    // ✅ 检查是否还是当前要加载的歌曲
+                    if (currentLoadingSongId.value !== newSong.id) {
+                        console.log(`⚠️ 歌曲已切换，放弃错误处理: ${newSong.name}`);
+                        return;
                     }
 
-                    // 清除歌曲信息缓存
-                    cacheStore.setCachedSong(newSong.id, undefined);
+                    // ✅ 防止并发重试
+                    if (retryingSet.value.has(newSong.id)) {
+                        console.log(`⚠️ 歌曲正在重试中，跳过: ${newSong.name}`);
+                        return;
+                    }
 
-                    // 重新加载歌曲
-                    console.log(`重新加载歌曲: ${newSong.name}`);
-                    const newSongDetail = await reloadSongAfterCacheExpired(newSong.id, newSong.name);
+                    retryingSet.value.add(newSong.id);
 
-                    if (newSongDetail && audioRef.value) {
-                        // 设置新的URL（直接使用在线URL，不使用缓存）
-                        audioRef.value.src = newSongDetail.url;
-                        audioRef.value.load();
-
-                        // 如果之前在播放，继续播放
-                        if (wasPlaying) {
-                            setTimeout(async () => {
-                                try {
-                                    if (audioRef.value && audioRef.value.readyState >= 2) {
-                                        await audioRef.value.play();
-                                    }
-                                } catch (err) {
-                                    console.error("重新播放失败:", err);
-                                    playerStore.isPlaying = false;
-                                }
-                            }, 100);
+                    try {
+                        // 如果使用的是音频文件缓存（Blob URL），清除失效的缓存
+                        if (isFromAudioCache && audioCacheStore) {
+                            console.log(`清除失效的音频缓存: ${newSong.name}`);
+                            await audioCacheStore.deleteCache(newSong.id);
                         }
-                    } else {
-                        playerStore.isPlaying = false;
+
+                        // 清除歌曲信息缓存
+                        cacheStore.setCachedSong(newSong.id, undefined);
+
+                        // 重新加载歌曲
+                        console.log(`重新加载歌曲: ${newSong.name}`);
+                        const newSongDetail = await reloadSongAfterCacheExpired(newSong.id, newSong.name);
+
+                        if (newSongDetail && audioRef.value) {
+                            // ✅ 再次检查是否还是当前歌曲
+                            if (currentLoadingSongId.value !== newSong.id) {
+                                console.log(`⚠️ 歌曲已切换，放弃重新加载: ${newSong.name}`);
+                                return;
+                            }
+
+                            // 设置新的URL（直接使用在线URL，不使用缓存）
+                            audioRef.value.src = newSongDetail.url;
+                            audioRef.value.load();
+
+                            // 如果之前在播放，继续播放
+                            if (wasPlaying) {
+                                setTimeout(async () => {
+                                    try {
+                                        if (audioRef.value && audioRef.value.readyState >= 2) {
+                                            await audioRef.value.play();
+                                        }
+                                    } catch (err) {
+                                        console.error("重新播放失败:", err);
+                                        playerStore.isPlaying = false;
+                                    }
+                                }, 100);
+                            }
+                        } else {
+                            playerStore.isPlaying = false;
+                        }
+                    } finally {
+                        // ✅ 移除重试标记
+                        retryingSet.value.delete(newSong.id);
                     }
                 };
 

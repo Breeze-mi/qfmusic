@@ -99,12 +99,13 @@ export const usePlaylistStore = defineStore("playlist", () => {
     if (index !== -1) {
       historyList.value.splice(index, 1);
     }
+    // // 限制列表长度为100首
+    // if (historyList.value.length > 100) {
+    //   historyList.value = historyList.value.slice(0, 100);
+    // }
     // 添加到列表开头
     historyList.value.unshift(song);
-    // 限制列表长度为100首
-    if (historyList.value.length > 100) {
-      historyList.value = historyList.value.slice(0, 100);
-    }
+    // 不限制列表长度，保存所有听过的歌曲
   };
 
   // 清空试听列表
