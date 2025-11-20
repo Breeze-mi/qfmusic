@@ -1,10 +1,28 @@
 import { ElMessage } from "element-plus";
 
-// 网易云音乐 API 基础地址
-// const BASE_URL = "http://10.91.84.162:5000";
-// const BASE_URL = "http://0.0.0.0:5000";
+// 网易云音乐 API 基础地址（动态获取，支持运行时修改）
+const getBaseURL = (): string => {
+  // 优先使用用户自定义的 API 地址
+  try {
+    const settings = localStorage.getItem("music-player-settings");
+    if (settings) {
+      const { apiBaseUrl } = JSON.parse(settings);
+      if (apiBaseUrl && apiBaseUrl.trim()) {
+        return apiBaseUrl.trim();
+      }
+    }
+  } catch (error) {
+    console.error("读取自定义 API 地址失败:", error);
+  }
 
-const BASE_URL = "http://10.22.19.155:5000";
+  // 使用环境变量配置的地址
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+
+  // 默认地址
+  return "http://localhost:5000";
+};
 
 // 请求超时时间（毫秒）
 const TIMEOUT = 30000;
@@ -146,7 +164,8 @@ const fetchWithRetry = async <T>(
     timeout = TIMEOUT,
   } = requestInterceptor(config);
 
-  // 构建完整 URL
+  // 构建完整 URL（动态获取 BASE_URL）
+  const BASE_URL = getBaseURL();
   let fullUrl = `${BASE_URL}${url}`;
   if (params && method === "GET") {
     const queryString = new URLSearchParams(params).toString();
