@@ -5,7 +5,7 @@ import { persist } from "@/utils/persist";
 
 const STORAGE_KEY = "music-song-cache";
 const MAX_CACHE_SIZE = 120; // 最多缓存120首歌曲
-const URL_EXPIRY_TIME = 4* 60 * 60 * 1000; // URL有效期：4小时（留2小时缓冲）
+const URL_EXPIRY_TIME = 5 * 60 * 60 * 1000; // URL有效期
 
 // 歌曲缓存项（带过期时间）
 interface CachedSongItem {
@@ -183,8 +183,8 @@ export const useCacheStore = defineStore("cache", () => {
       // 直接从localStorage读取，这样能获取真实的存储大小
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        // 使用字符串长度 * 2（因为JavaScript字符串是UTF-16编码）
-        const bytes = new Blob([stored]).size;
+        // localStorage 使用 UTF-16 编码，每个字符占 2 字节
+        const bytes = stored.length * 2;
         return { count, bytes };
       }
       return { count, bytes: 0 };

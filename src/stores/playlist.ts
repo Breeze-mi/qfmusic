@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { ref, watch } from "vue";
+import { ref, watch, nextTick } from "vue";
 import type { Song } from "@/api/music";
 import { persist } from "@/utils/persist";
 import { tabSync } from "@/utils/sync";
@@ -85,10 +85,10 @@ export const usePlaylistStore = defineStore("playlist", () => {
     historyList.value = data.historyList || [];
     favoriteList.value = data.favoriteList || [];
 
-    // 重置同步标志
-    setTimeout(() => {
+    // 使用 nextTick 确保在下一个 tick 重置同步标志
+    nextTick(() => {
       isSyncing = false;
-    }, 0);
+    });
   });
 
   // ========== 试听列表（历史记录）==========

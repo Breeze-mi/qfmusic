@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { ref, watch } from "vue";
+import { ref, watch, nextTick } from "vue";
 import { tabSync } from "@/utils/sync";
 
 // 音质类型
@@ -91,10 +91,10 @@ export const useSettingsStore = defineStore("settings", () => {
     fontSize.value = data.fontSize || "medium";
     apiBaseUrl.value = data.apiBaseUrl || "";
 
-    // 重置同步标志
-    setTimeout(() => {
+    // 使用 nextTick 确保在下一个 tick 重置同步标志
+    nextTick(() => {
       isSyncing = false;
-    }, 0);
+    });
   });
 
   // 设置音质

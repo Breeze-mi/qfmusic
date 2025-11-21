@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import type { Song, SongDetail } from "@/api/music";
 import { persist } from "@/utils/persist";
 import { tabSync } from "@/utils/sync";
@@ -47,6 +47,8 @@ export const usePlayerStore = defineStore("player", () => {
   const showPlaylist = ref(false);
   // 是否显示歌曲详情页
   const showDetail = ref(false);
+  // 强制重新加载的时间戳（用于同一首歌重新播放）
+  const reloadTimestamp = ref(0);
 
   // 标志：是否正在从其他标签页同步数据（避免循环广播）
   let isSyncing = false;
@@ -93,10 +95,10 @@ export const usePlayerStore = defineStore("player", () => {
       currentSong.value = null;
     }
 
-    // 重置同步标志
-    setTimeout(() => {
+    // 使用 nextTick 确保在下一个 tick 重置同步标志
+    nextTick(() => {
       isSyncing = false;
-    }, 0);
+    });
   });
 
   // 当前播放歌曲（直接存储，避免 computed 的多次触发）
@@ -129,6 +131,13 @@ export const usePlayerStore = defineStore("player", () => {
 
   // 播放指定歌曲
   const playSong = (song: Song) => {
+    // 重置 API 健康检查状态（用户主动操作）
+    if (typeof window !== "undefined") {
+      import("@/utils/request").then(({ resetAPIHealthStatus }) => {
+        resetAPIHealthStatus();
+      });
+    }
+
     const index = playlist.value.findIndex((s) => s.id === song.id);
     if (index === -1) {
       // 歌曲不在播放列表中，添加到列表末尾
@@ -152,16 +161,55 @@ export const usePlayerStore = defineStore("player", () => {
 
   // 播放/暂停
   const togglePlay = () => {
+    // 重置 API 健康检查状态（用户主动操作）
+    if (typeof window !== "undefined") {
+      import("@/utils/request").then(({ resetAPIHealthStatus }) => {
+        resetAPIHealthStatus();
+      });
+    }
     isPlaying.value = !isPlaying.value;
+  };
+
+  // 获取随机索引（避免重复）
+  const getRandomIndex = (): number => {
+    if (playlist.value.length === 1) {
+      return 0;
+    }
+    let newIndex: number;
+    do {
+      newIndex = Math.floor(Math.random() * playlist.value.length);
+    } while (newIndex === currentIndex.value);
+    return newIndex;
+  };
+
+  // 切换到指定索引的歌曲
+  const switchToIndex = (newIndex: number) => {
+    const oldIndex = currentIndex.value;
+    currentIndex.value = newIndex;
+    currentSong.value = playlist.value[newIndex];
+
+    // 如果索引没变（只有一首歌的情况），更新时间戳强制重新加载
+    if (newIndex === oldIndex) {
+      reloadTimestamp.value = Date.now();
+    }
+
+    isPlaying.value = true;
   };
 
   // 上一首
   const playPrev = () => {
     if (playlist.value.length === 0) return;
 
+    // 重置 API 健康检查状态（用户主动操作）
+    if (typeof window !== "undefined") {
+      import("@/utils/request").then(({ resetAPIHealthStatus }) => {
+        resetAPIHealthStatus();
+      });
+    }
+
     let newIndex: number;
     if (playMode.value === PlayMode.RANDOM) {
-      newIndex = Math.floor(Math.random() * playlist.value.length);
+      newIndex = getRandomIndex();
     } else {
       newIndex =
         currentIndex.value <= 0
@@ -169,39 +217,26 @@ export const usePlayerStore = defineStore("player", () => {
           : currentIndex.value - 1;
     }
 
-    // ✅ 确保索引有效
-    if (newIndex < 0 || newIndex >= playlist.value.length) {
-      console.error(
-        `playPrev: 无效的索引 ${newIndex}, 播放列表长度: ${playlist.value.length}`
-      );
-      newIndex = 0;
-    }
-
-    currentIndex.value = newIndex;
-    // ✅ 直接设置 currentSong
-    currentSong.value = playlist.value[newIndex];
+    switchToIndex(newIndex);
     console.log(
       `playPrev: 切换到索引 ${newIndex}, 歌曲: ${currentSong.value?.name}`
     );
-    isPlaying.value = true;
   };
 
   // 下一首
   const playNext = () => {
-    console.log(
-      `🔄 playNext 被调用, 当前索引: ${currentIndex.value}, 播放列表长度: ${playlist.value.length}`
-    );
+    if (playlist.value.length === 0) return;
 
-    if (playlist.value.length === 0) {
-      console.log(`⚠️ playNext: 播放列表为空`);
-      return;
+    // 重置 API 健康检查状态（用户主动操作）
+    if (typeof window !== "undefined") {
+      import("@/utils/request").then(({ resetAPIHealthStatus }) => {
+        resetAPIHealthStatus();
+      });
     }
-
-    // 单曲循环只在歌曲自然结束时生效
 
     let newIndex: number;
     if (playMode.value === PlayMode.RANDOM) {
-      newIndex = Math.floor(Math.random() * playlist.value.length);
+      newIndex = getRandomIndex();
     } else {
       newIndex =
         currentIndex.value >= playlist.value.length - 1
@@ -209,23 +244,10 @@ export const usePlayerStore = defineStore("player", () => {
           : currentIndex.value + 1;
     }
 
-    console.log(`📍 计算的新索引: ${newIndex}`);
-
-    // ✅ 确保索引有效
-    if (newIndex < 0 || newIndex >= playlist.value.length) {
-      console.error(
-        `playNext: 无效的索引 ${newIndex}, 播放列表长度: ${playlist.value.length}`
-      );
-      newIndex = 0;
-    }
-
-    currentIndex.value = newIndex;
-    // ✅ 直接设置 currentSong
-    currentSong.value = playlist.value[newIndex];
+    switchToIndex(newIndex);
     console.log(
-      `✅ playNext: 切换到索引 ${newIndex}, 歌曲: ${currentSong.value?.name}`
+      `playNext: 切换到索引 ${newIndex}, 歌曲: ${currentSong.value?.name}`
     );
-    isPlaying.value = true;
   };
 
   // 切换播放模式
@@ -239,7 +261,7 @@ export const usePlayerStore = defineStore("player", () => {
   const removeFromPlaylist = (index: number) => {
     // 如果删除的是当前播放的歌曲
     if (index === currentIndex.value) {
-      // 如果列表只有一首歌，清空状态
+      // 如果列表只有一首歌，清空状态并停止播放
       if (playlist.value.length === 1) {
         playlist.value = [];
         currentIndex.value = -1;
@@ -248,20 +270,25 @@ export const usePlayerStore = defineStore("player", () => {
         currentSongDetail.value = null;
         return;
       }
-      // 如果删除的是最后一首，播放第一首
-      if (index === playlist.value.length - 1) {
-        currentIndex.value = 0;
-        currentSong.value = playlist.value[0];
-      } else {
-        // 否则保持当前索引，会自动播放下一首
-        currentSong.value = playlist.value[currentIndex.value];
-      }
-    } else if (index < currentIndex.value) {
+
+      // 先删除歌曲
+      playlist.value.splice(index, 1);
+
+      // 计算新的索引：如果删除的是最后一首，回到第一首；否则保持当前索引
+      const newIndex = index >= playlist.value.length ? 0 : index;
+
+      // 切换到新歌曲并继续播放
+      currentIndex.value = newIndex;
+      currentSong.value = playlist.value[newIndex];
+      reloadTimestamp.value = Date.now();
+      isPlaying.value = true;
+    } else {
       // 如果删除的歌曲在当前播放歌曲之前，索引需要减1
-      currentIndex.value--;
-      currentSong.value = playlist.value[currentIndex.value];
+      if (index < currentIndex.value) {
+        currentIndex.value--;
+      }
+      playlist.value.splice(index, 1);
     }
-    playlist.value.splice(index, 1);
   };
 
   // 清空播放列表
@@ -287,8 +314,8 @@ export const usePlayerStore = defineStore("player", () => {
   const setCurrentTime = (time: number) => {
     currentTime.value = time;
 
-    // 保存当前歌曲的播放进度（每3秒保存一次，避免频繁写入）
-    if (currentSong.value && time > 0 && Math.floor(time) % 2 === 0) {
+    // 保存当前歌曲的播放进度（每2秒保存一次）
+    if (currentSong.value && time > 0 && Math.floor(time) % 4 === 0) {
       savedProgress.value[currentSong.value.id] = time;
     }
   };
@@ -330,6 +357,7 @@ export const usePlayerStore = defineStore("player", () => {
     duration,
     showPlaylist,
     showDetail,
+    reloadTimestamp,
     // computed
     currentSong,
     progress,

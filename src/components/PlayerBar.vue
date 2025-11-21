@@ -333,30 +333,30 @@ const handleSongLoadError = (message: string, clearSource: boolean = true) => {
     }
 };
 
-// 平滑淡出函数，使用指数衰减曲线，避免切歌时的爆音
-// 注意：当前未使用，因为异步淡出会导致音频残留，改用同步方式
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const fadeOut = async (duration: number = 20): Promise<void> => {
-    if (!audioRef.value) return;
+// // 平滑淡出函数，使用指数衰减曲线，避免切歌时的爆音
+// // 注意：当前未使用，因为异步淡出会导致音频残留，改用同步方式
+// // eslint-disable-next-line @typescript-eslint/no-unused-vars
+// const fadeOut = async (duration: number = 20): Promise<void> => {
+//     if (!audioRef.value) return;
 
-    const originalVolume = audioRef.value.volume;
-    const steps = 4; // 减少到4步
-    const stepDuration = duration / steps;
+//     const originalVolume = audioRef.value.volume;
+//     const steps = 4; // 减少到4步
+//     const stepDuration = duration / steps;
 
-    for (let i = 0; i < steps; i++) {
-        if (audioRef.value) {
-            // 使用指数衰减：音量快速下降，但平滑过渡
-            const progress = (i + 1) / steps;
-            const exponentialProgress = Math.pow(progress, 2); // 平方衰减
-            audioRef.value.volume = originalVolume * (1 - exponentialProgress);
-            await new Promise(resolve => setTimeout(resolve, stepDuration));
-        }
-    }
+//     for (let i = 0; i < steps; i++) {
+//         if (audioRef.value) {
+//             // 使用指数衰减：音量快速下降，但平滑过渡
+//             const progress = (i + 1) / steps;
+//             const exponentialProgress = Math.pow(progress, 2); // 平方衰减
+//             audioRef.value.volume = originalVolume * (1 - exponentialProgress);
+//             await new Promise(resolve => setTimeout(resolve, stepDuration));
+//         }
+//     }
 
-    if (audioRef.value) {
-        audioRef.value.volume = 0;
-    }
-};
+//     if (audioRef.value) {
+//         audioRef.value.volume = 0;
+//     }
+// };
 
 // 记录当前加载的歌曲ID，防止重复加载
 let currentLoadingSongId = ref<string | null>(null);
@@ -364,18 +364,24 @@ let currentLoadingSongId = ref<string | null>(null);
 // 正在重试的歌曲集合，防止并发重试
 const retryingSet = ref<Set<string>>(new Set());
 
+// 记录上次的 reloadTimestamp
+const lastReloadTimestamp = ref(0);
+
 // 监听当前歌曲变化，加载音频
 watch(
-    () => playerStore.currentSong,
-    async (newSong, oldSong) => {
+    [() => playerStore.currentSong, () => playerStore.reloadTimestamp],
+    async ([newSong], [oldSong]) => {
         if (newSong && audioRef.value) {
-            // 防止重复加载同一首歌
-            if (newSong.id === currentLoadingSongId.value) {
+            const timestampChanged = playerStore.reloadTimestamp !== lastReloadTimestamp.value && playerStore.reloadTimestamp > 0;
+            lastReloadTimestamp.value = playerStore.reloadTimestamp;
+
+            // 防止重复加载同一首歌（除非 reloadTimestamp 变化了）
+            if (newSong.id === currentLoadingSongId.value && !timestampChanged) {
                 return;
             }
 
-            // 如果是同一首歌（ID相同），不需要重新加载
-            if (oldSong && newSong.id === oldSong.id) {
+            // 如果是同一首歌（ID相同）且 reloadTimestamp 没变化，不需要重新加载
+            if (oldSong && newSong.id === oldSong.id && !timestampChanged) {
                 return;
             }
 
@@ -775,14 +781,14 @@ const handleEnded = () => {
         console.log("歌曲播放结束，当前模式:", playerStore.playMode);
     }
 
-    // ✅ 如果当前 src 是 data URL（临时的静音音频），忽略 ended 事件
+    // 如果当前 src 是 data URL（临时的静音音频），忽略 ended 事件
     if (audioRef.value && audioRef.value.src.startsWith('data:audio/wav')) {
         console.log("⏭️ 忽略 data URL 的 ended 事件");
         return;
     }
 
-    // 如果播放列表只有一首歌，直接重新播放（无论什么模式）
-    if (playerStore.playlist.length === 1) {
+    // 单曲循环模式 或 只有一首歌：重新播放当前歌曲
+    if (playerStore.playMode === PlayMode.LOOP || playerStore.playlist.length === 1) {
         if (audioRef.value) {
             audioRef.value.currentTime = 0;
             audioRef.value.play().catch(err => {
@@ -792,19 +798,7 @@ const handleEnded = () => {
         return;
     }
 
-    // 单曲循环模式：重新播放当前歌曲
-    if (playerStore.playMode === PlayMode.LOOP) {
-        if (audioRef.value) {
-            audioRef.value.currentTime = 0;
-            audioRef.value.play().catch(err => {
-                console.error("单曲循环播放失败:", err);
-            });
-        }
-        return;
-    }
-
     // 其他模式：播放下一首
-    // 确保播放状态为 true，这样切换歌曲后会自动播放
     playerStore.playNext();
 };
 
