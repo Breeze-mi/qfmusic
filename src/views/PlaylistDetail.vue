@@ -738,22 +738,25 @@ onUnmounted(() => {
 
                 .col-name {
                     flex: 1;
-                    min-width: 200px;
+                    min-width: 100px;
+                    text-align: left;
                 }
 
                 .col-artist {
-                    width: 300px;
-                    flex-shrink: 0;
+                    width: 280px;
+                    flex-shrink: 1;
+                    text-align: left;
                 }
 
                 .col-album {
-                    width: 260px;
-                    flex-shrink: 0;
+                    width: 200px;
+                    flex-shrink: 1;
+                    text-align: left;
                 }
 
                 .col-actions {
                     width: 190px;
-                    flex-shrink: 0;
+                    flex-shrink: 1;
                     text-align: center;
                 }
             }
@@ -777,6 +780,7 @@ onUnmounted(() => {
                     user-select: text;
                     /* 允许文字选择 */
                     position: relative;
+                    flex-wrap: nowrap;
 
                     &:hover {
                         background: var(--el-fill-color-light);
@@ -873,7 +877,10 @@ onUnmounted(() => {
 
                     .col-name {
                         flex: 1;
-                        min-width: 200px;
+                        min-width: 100px;
+                        overflow: hidden;
+                        display: flex;
+                        align-items: center;
 
                         .song-name {
                             font-size: var(--custom-font-size-base);
@@ -886,28 +893,30 @@ onUnmounted(() => {
                     }
 
                     .col-artist {
-                        width: 305px;
-                        flex-shrink: 0;
+                        width: 280px;
+                        flex-shrink: 1;
                         font-size: var(--custom-font-size-md);
                         color: var(--el-text-color-secondary);
                         overflow: hidden;
                         text-overflow: ellipsis;
                         white-space: nowrap;
+                        text-align: left;
                     }
 
                     .col-album {
-                        width: 260px;
-                        flex-shrink: 0;
+                        width: 200px;
+                        flex-shrink: 1;
                         font-size: var(--custom-font-size-md);
                         color: var(--el-text-color-secondary);
                         overflow: hidden;
                         text-overflow: ellipsis;
                         white-space: nowrap;
+                        text-align: left;
                     }
 
                     .col-actions {
                         width: 190px;
-                        flex-shrink: 0;
+                        flex-shrink: 1;
                         display: flex;
                         justify-content: center;
                         gap: 4px;

@@ -458,6 +458,7 @@ watch(() => searchStore.searchResults, () => {
         align-items: center;
         justify-content: space-between;
         padding: 16px 24px;
+        height: 79px;
         background: var(--el-bg-color);
         border-bottom: 1px solid var(--el-border-color-light);
         flex-shrink: 0;
@@ -469,6 +470,13 @@ watch(() => searchStore.searchResults, () => {
             align-items: center;
             gap: 8px;
             flex-shrink: 0;
+
+            // 加大设置和主题切换按钮
+            :deep(.el-button.is-circle) {
+                width: 40px;
+                height: 40px;
+                font-size: 22px;
+            }
         }
     }
 
@@ -527,8 +535,8 @@ watch(() => searchStore.searchResults, () => {
                     align-items: center;
                     padding: 10px 0;
                     background: var(--el-bg-color);
-                    font-size: 12px;
-                    font-weight: 500;
+                    font-size: var(--custom-font-size-base);
+                    font-weight: 600;
                     color: var(--el-text-color-secondary);
                     position: sticky;
                     top: 0;
@@ -545,21 +553,24 @@ watch(() => searchStore.searchResults, () => {
 
                     .col-name {
                         flex: 1;
-                        min-width: 200px;
+                        min-width: 100px;
+                        text-align: left;
                     }
 
                     .col-artist {
-                        width: 194px;
+                        width: 280px;
                         flex-shrink: 0;
+                        text-align: left;
                     }
 
                     .col-album {
-                        width: 200px;
+                        width: 210px;
                         flex-shrink: 0;
+                        text-align: left;
                     }
 
                     .col-actions {
-                        width: 140px;
+                        width: 190px;
                         flex-shrink: 0;
                         text-align: center;
                     }
@@ -587,6 +598,7 @@ watch(() => searchStore.searchResults, () => {
                         user-select: text;
                         /* 允许文字选择 */
                         min-width: 0;
+                        flex-wrap: nowrap;
 
                         &:hover {
                             background: var(--el-fill-color-light);
@@ -600,17 +612,19 @@ watch(() => searchStore.searchResults, () => {
                             width: 50px;
                             flex-shrink: 0;
                             text-align: center;
-                            font-size: 14px;
+                            font-size: var(--custom-font-size-base);
                             color: var(--el-text-color-secondary);
 
                             .playing-icon {
                                 color: var(--el-color-primary);
-                                font-size: 16px;
+                                font-size: var(--custom-font-size-lg);
                             }
                         }
 
                         &.is-playing {
                             background: var(--song-playing-bg);
+                            border-left: 3px solid var(--el-color-primary);
+                            padding-left: 13px;
 
                             .col-name .song-name {
                                 color: var(--song-playing-text);
@@ -630,8 +644,6 @@ watch(() => searchStore.searchResults, () => {
 
                         &.is-selected {
                             background: var(--song-selected-bg) !important;
-                            border-left: 3px solid var(--song-selected-border);
-                            padding-left: 13px;
 
                             .col-name .song-name {
                                 font-weight: 500;
@@ -652,12 +664,12 @@ watch(() => searchStore.searchResults, () => {
 
                         .col-name {
                             flex: 1;
-                            min-width: 200px;
+                            min-width: 100px;
                             display: flex;
                             align-items: center;
 
                             .song-name {
-                                font-size: 14px;
+                                font-size: var(--custom-font-size-base);
                                 font-weight: 400;
                                 color: var(--el-text-color-primary);
                                 overflow: hidden;
@@ -667,27 +679,29 @@ watch(() => searchStore.searchResults, () => {
                         }
 
                         .col-artist {
-                            width: 180px;
+                            width: 280px;
                             flex-shrink: 0;
-                            font-size: 13px;
+                            font-size: var(--custom-font-size-md);
                             color: var(--el-text-color-regular);
                             overflow: hidden;
                             text-overflow: ellipsis;
                             white-space: nowrap;
+                            text-align: left;
                         }
 
                         .col-album {
                             width: 200px;
                             flex-shrink: 0;
-                            font-size: 13px;
+                            font-size: var(--custom-font-size-md);
                             color: var(--el-text-color-regular);
                             overflow: hidden;
                             text-overflow: ellipsis;
                             white-space: nowrap;
+                            text-align: left;
                         }
 
                         .col-actions {
-                            width: 140px;
+                            width: 190px;
                             flex-shrink: 0;
                             display: flex;
                             justify-content: center;
@@ -840,19 +854,19 @@ watch(() => searchStore.searchResults, () => {
         padding: 10px 16px;
         cursor: pointer;
         transition: background 0.2s, color 0.2s;
-        font-size: 13px;
+        font-size: var(--custom-font-size-md);
         color: var(--el-text-color-primary);
         position: relative;
 
         .el-icon {
-            font-size: 16px;
+            font-size: var(--custom-font-size-lg);
             color: var(--el-text-color-regular);
             transition: color 0.2s;
         }
 
         .arrow-icon {
             margin-left: auto;
-            font-size: 14px;
+            font-size: var(--custom-font-size-base);
         }
 
         &:hover {
@@ -882,7 +896,7 @@ watch(() => searchStore.searchResults, () => {
 
                 .submenu-item {
                     padding: 10px 16px;
-                    font-size: 13px;
+                    font-size: var(--custom-font-size-md);
                     color: var(--el-text-color-primary);
                     cursor: pointer;
                     transition: background 0.2s;

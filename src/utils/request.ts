@@ -358,7 +358,7 @@ export const resetAPIHealthStatus = (): void => {
   consecutiveFailures = 0; // 重置失败计数
   isAPIHealthy = true; // 重置健康状态
   if (import.meta.env.DEV) {
-    console.log("🔄 用户发起搜索，健康检查状态已重置");
+    // console.log("🔄 用户发起搜索，健康检查状态已重置");
   }
 };
 

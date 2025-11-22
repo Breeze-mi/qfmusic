@@ -187,3 +187,32 @@ html.dark {
 	width: 12px;
 	height: 12px;
 }
+
+/* 让 Element Plus 组件字体大小跟随设置 */
+.el-button {
+	font-size: var(--custom-font-size-base) !important;
+}
+
+.el-input__inner {
+	font-size: var(--custom-font-size-base) !important;
+}
+
+.el-select .el-input__inner {
+	font-size: var(--custom-font-size-base) !important;
+}
+
+.el-select .el-select__placeholder {
+	font-size: var(--custom-font-size-base) !important;
+}
+
+.el-select .el-select__selected-item {
+	font-size: var(--custom-font-size-base) !important;
+}
+
+.el-select-dropdown__item {
+	font-size: var(--custom-font-size-base) !important;
+}
+
+.el-input-number .el-input__inner {
+	font-size: var(--custom-font-size-base) !important;
+}
