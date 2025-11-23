@@ -30,7 +30,13 @@
 
             <!-- 右侧：歌词 -->
             <div class="right-section">
-                <div class="lyrics-container" ref="lyricsContainerRef">
+                <!-- 样式二：使用Canvas渲染 -->
+                <div v-if="settingsStore.karaokeMode === 'style2' && lyrics.length > 0" class="lyrics-container-canvas">
+                    <LyricCanvasRenderer :lyrics="lyrics" :currentLyricIndex="currentLyricIndex"
+                        :currentTime="playerStore.currentTime" />
+                </div>
+                <!-- 其他样式：使用DOM渲染 -->
+                <div v-else class="lyrics-container" ref="lyricsContainerRef">
                     <div v-if="lyrics.length > 0" class="lyrics">
                         <div v-for="(line, index) in lyrics" :key="index" class="lyric-item"
                             :class="{ active: index === currentLyricIndex }"
@@ -42,12 +48,6 @@
                                     :class="getCharClass(index, line, char)" :style="getCharStyle(char)">
                                     {{ char.text }}
                                 </span>
-                            </div>
-                            <!-- 卡拉OK样式二：渐变填充效果（整行渐变） -->
-                            <div v-else-if="settingsStore.karaokeMode === 'style2' && line.chars && line.chars.length > 0"
-                                class="lyric-line karaoke-style2" :style="getLineGradientStyle(index, line)">
-                                <span class="lyric-text-base">{{ line.text }}</span>
-                                <span class="lyric-text-gradient">{{ line.text }}</span>
                             </div>
                             <!-- 普通模式：整行高亮 -->
                             <div v-else class="lyric-line">{{ line.text }}</div>
@@ -72,6 +72,7 @@ import { Setting, Sunny, Moon } from "@element-plus/icons-vue";
 import { usePlayerStore } from "@/stores/player";
 import { useThemeStore } from "@/stores/theme";
 import { useSettingsStore } from "@/stores/settings";
+import LyricCanvasRenderer from "@/components/LyricCanvasRenderer.vue";
 import {
     parseLyric,
     getCharHighlightClass,
@@ -109,31 +110,6 @@ const getCharClass = (lineIndex: number, line: LyricLine, char: LyricChar) => {
 
 const getCharStyle = (char: LyricChar) => {
     return getCharAnimationStyle(char);
-};
-
-// 样式二：获取整行渐变填充样式
-const getLineGradientStyle = (lineIndex: number, line: LyricLine) => {
-    if (lineIndex !== currentLyricIndex.value || !line.chars || line.chars.length === 0) {
-        return { '--line-gradient-progress': '0%' };
-    }
-
-    // 计算整行的播放进度
-    const relativeTime = playerStore.currentTime - line.time;
-    const lineDuration = line.duration || 4;
-
-    // 计算进度百分比（0-100）
-    let progress = 0;
-    if (relativeTime < 0) {
-        progress = 0;
-    } else if (relativeTime >= lineDuration) {
-        progress = 100;
-    } else {
-        progress = (relativeTime / lineDuration) * 100;
-    }
-
-    return {
-        '--line-gradient-progress': `${Math.min(Math.max(progress, 0), 100)}%`,
-    };
 };
 
 // 监听歌曲详情变化，解析歌词
@@ -354,6 +330,14 @@ onMounted(() => {
             display: flex;
             flex-direction: column;
             min-width: 0;
+
+            .lyrics-container-canvas {
+                flex: 1;
+                background: var(--lyric-bg);
+                border-radius: 12px;
+                transition: background 0.3s;
+                overflow: hidden;
+            }
 
             .lyrics-container {
                 flex: 1;
