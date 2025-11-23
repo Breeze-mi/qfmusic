@@ -66,8 +66,8 @@
                 </div>
                 <div class="setting-item">
                     <div class="setting-info">
-                        <div class="setting-title">已播放歌词颜色</div>
-                        <div class="setting-desc">自定义正在播放（已播放）的歌词文字颜色（独立设置，不受主题影响）</div>
+                        <div class="setting-title">正在播放歌词颜色</div>
+                        <div class="setting-desc">自定义正在播放的歌词文字颜色（默认跟随主题预设，可覆盖）</div>
                     </div>
                     <el-color-picker v-model="customLyricActiveText" @active-change="handleLyricActiveTextChange" />
                 </div>
@@ -132,6 +132,17 @@
                         <div class="setting-desc">播放外文歌曲时显示中文翻译（如有）</div>
                     </div>
                     <el-switch v-model="settingsStore.showLyricTranslation" active-text="开启" inactive-text="关闭" />
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-title">卡拉OK式歌词</div>
+                        <div class="setting-desc">选择歌词播放时的卡拉OK效果样式</div>
+                    </div>
+                    <el-select v-model="settingsStore.karaokeMode" placeholder="选择样式" style="width: 180px">
+                        <el-option label="关闭" value="off" />
+                        <el-option label="样式一（弹跳）" value="style1" />
+                        <el-option label="样式二（渐变）" value="style2" />
+                    </el-select>
                 </div>
                 <div class="setting-item">
                     <div class="setting-info">
@@ -262,7 +273,7 @@
                 <div class="setting-item">
                     <div class="setting-info">
                         <div class="setting-title">版本信息</div>
-                        <div class="setting-desc"> v1.1.4 </div>
+                        <div class="setting-desc"> v1.1.5 </div>
                     </div>
                 </div>
                 <div class="setting-item">
@@ -301,7 +312,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { usePlaylistStore } from "@/stores/playlist";
 import { useAudioCacheStore } from "@/stores/audioCache";
 import { StorageFactory } from "@/storage/storageFactory";
-import { resetAPIHealthStatus } from "@/utils/request";
+// import { resetAPIHealthStatus } from "@/utils/request"; // 已禁用健康检查
 import { themePresets, lightThemeColors, darkThemeColors } from "@/config/theme";
 
 const router = useRouter();
@@ -755,27 +766,21 @@ const handleSelectedTextChange = (color: string | null) => {
 
 // 歌词背景色变化
 const handleLyricBgChange = (color: string | null) => {
-    if (color) {
-        customLyricBg.value = color;
-    }
+    customLyricBg.value = color || '';
     const colors = getCurrentLyricColors();
     themeStore.setLyricColors(colors);
 };
 
 // 已播放歌词颜色变化
 const handleLyricActiveTextChange = (color: string | null) => {
-    if (color) {
-        customLyricActiveText.value = color;
-    }
+    customLyricActiveText.value = color || '';
     const colors = getCurrentLyricColors();
     themeStore.setLyricColors(colors);
 };
 
 // 未播放歌词颜色变化
 const handleLyricInactiveTextChange = (color: string | null) => {
-    if (color) {
-        customLyricInactiveText.value = color;
-    }
+    customLyricInactiveText.value = color || '';
     const colors = getCurrentLyricColors();
     themeStore.setLyricColors(colors);
 };
@@ -811,7 +816,7 @@ const handleThemePresetChange = (preset: string) => {
 // 恢复默认主题颜色
 const handleResetThemeColors = () => {
     ElMessageBox.confirm(
-        '确定要恢复默认主题颜色吗？（选中颜色和歌词颜色不会被清除）',
+        '确定要恢复默认主题颜色吗？这将清除所有自定义颜色设置（包括主题颜色、选中颜色和歌词颜色）',
         '恢复默认',
         {
             confirmButtonText: '确定',
@@ -819,11 +824,24 @@ const handleResetThemeColors = () => {
             type: 'warning',
         }
     ).then(() => {
+        // 恢复主题预设为默认
         selectedThemePreset.value = 'default';
         localStorage.setItem('selectedThemePreset', 'default');
+
+        // 清空所有自定义颜色输入框
         customPrimaryColor.value = '';
-        // 不清空选中颜色和歌词颜色（它们是独立的）
-        themeStore.setCustomColors(null);
+        customSelectedBg.value = '';
+        customSelectedText.value = '';
+        customLyricBg.value = '';
+        customLyricActiveText.value = '';
+        customLyricInactiveText.value = '';
+
+        // 应用默认主题预设（网易红），而不是清除
+        const defaultTheme = themePresets['default'];
+        themeStore.setCustomColors(defaultTheme);
+        themeStore.setSelectedColors(null);
+        themeStore.setLyricColors(null);
+
         ElMessage.success('已恢复默认主题颜色');
     }).catch(() => {
         // 用户取消
@@ -842,9 +860,9 @@ const handleSaveApiUrl = () => {
     // 保存到 store（会自动保存到 localStorage）
     settingsStore.setApiBaseUrl(url);
 
-    // 🔧 重置 API 健康检查状态（关键修复）
+    // 🔧 重置 API 健康检查状态（可选功能，已禁用）
     // 清除之前的失败记录，允许使用新地址重新连接
-    resetAPIHealthStatus();
+    // resetAPIHealthStatus();
 
     // 立即生效提示
     ElMessage.success({
@@ -861,9 +879,9 @@ const handleResetApiUrl = () => {
     apiUrlInput.value = "";
     settingsStore.setApiBaseUrl("");
 
-    // 🔧 重置 API 健康检查状态（关键修复）
+    // 🔧 重置 API 健康检查状态（可选功能，已禁用）
     // 清除之前的失败记录，允许使用默认地址重新连接
-    resetAPIHealthStatus();
+    // resetAPIHealthStatus();
 
     // ElMessage.success({
     //     message: "已重置为默认API地址并立即生效",

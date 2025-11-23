@@ -26,7 +26,7 @@ export const useThemeStore = defineStore("theme", () => {
   // 应用主题到DOM
   const applyTheme = (dark: boolean, broadcast = true) => {
     // 添加禁用过渡的类,实现即时切换
-    document.documentElement.classList.add('theme-transition-disabled');
+    document.documentElement.classList.add("theme-transition-disabled");
 
     // 先切换dark类，触发CSS变量的切换
     document.documentElement.classList.toggle("dark", dark);
@@ -34,18 +34,38 @@ export const useThemeStore = defineStore("theme", () => {
 
     // 使用 requestAnimationFrame 确保DOM更新后再应用自定义颜色
     requestAnimationFrame(() => {
-      // 合并主题颜色、选中颜色和歌词颜色
+      // 合并主题颜色和选中颜色
       const mergedColors = {
         ...(customColors.value || {}),
         ...(selectedColors.value || {}),
-        ...(lyricColors.value || {}),
       };
+
+      // 只合并用户实际设置了的歌词颜色属性（过滤掉空值）
+      if (lyricColors.value && Object.keys(lyricColors.value).length > 0) {
+        const filteredLyricColors: any = {};
+        if (lyricColors.value.lyricBg) {
+          filteredLyricColors.lyricBg = lyricColors.value.lyricBg;
+        }
+        if (lyricColors.value.lyricActiveText) {
+          filteredLyricColors.lyricActiveText =
+            lyricColors.value.lyricActiveText;
+        }
+        if (lyricColors.value.lyricInactiveText) {
+          filteredLyricColors.lyricInactiveText =
+            lyricColors.value.lyricInactiveText;
+        }
+        Object.assign(mergedColors, filteredLyricColors);
+      }
+
       // 应用自定义颜色（如果有）
-      applyCustomTheme(dark, Object.keys(mergedColors).length > 0 ? mergedColors : undefined);
+      applyCustomTheme(
+        dark,
+        Object.keys(mergedColors).length > 0 ? mergedColors : undefined
+      );
 
       // 在下一帧移除禁用过渡的类,恢复正常过渡效果
       requestAnimationFrame(() => {
-        document.documentElement.classList.remove('theme-transition-disabled');
+        document.documentElement.classList.remove("theme-transition-disabled");
       });
     });
 
@@ -74,7 +94,9 @@ export const useThemeStore = defineStore("theme", () => {
   };
 
   // 设置独立的选中颜色（不受主题预设影响）
-  const setSelectedColors = (colors: { selectedBg?: string; selectedText?: string; } | null) => {
+  const setSelectedColors = (
+    colors: { selectedBg?: string; selectedText?: string } | null
+  ) => {
     selectedColors.value = colors;
     if (colors && Object.keys(colors).length > 0) {
       localStorage.setItem("custom-selected-colors", JSON.stringify(colors));
@@ -86,7 +108,13 @@ export const useThemeStore = defineStore("theme", () => {
   };
 
   // 设置独立的歌词颜色（不受主题预设影响）
-  const setLyricColors = (colors: { lyricBg?: string; lyricActiveText?: string; lyricInactiveText?: string; } | null) => {
+  const setLyricColors = (
+    colors: {
+      lyricBg?: string;
+      lyricActiveText?: string;
+      lyricInactiveText?: string;
+    } | null
+  ) => {
     lyricColors.value = colors;
     if (colors && Object.keys(colors).length > 0) {
       localStorage.setItem("custom-lyric-colors", JSON.stringify(colors));

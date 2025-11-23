@@ -157,11 +157,147 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
     }
   };
 
-  // 下载并缓存音频
+  // 从 audio 元素捕获已下载的音频数据（智能缓存，支持丝滑切换）
+  const captureFromAudioElement = async (
+    songId: string,
+    audioElement: HTMLAudioElement,
+    audioUrl: string,
+    quality: string,
+    onProgress?: (percent: number) => void,
+    onComplete?: (blobUrl: string) => void
+  ): Promise<void> => {
+    try {
+      await init();
+
+      // 检查是否已缓存
+      const alreadyCached = await hasValidCache(songId);
+      if (alreadyCached) {
+        console.log(`✅ 歌曲 ${songId} 已缓存，跳过`);
+        return;
+      }
+
+      // 检查是否正在处理
+      if (downloadingSet.value.has(songId)) {
+        console.log(`⏸️ 歌曲 ${songId} 正在处理中，跳过`);
+        return;
+      }
+
+      downloadingSet.value.add(songId);
+
+      console.log(`🎵 智能缓存：等待缓冲完成: ${songId}`);
+
+      // 等待音频缓冲到一定程度（不需要完全加载，减少等待时间）
+      const waitForBuffering = new Promise<void>((resolve) => {
+        // 如果已经缓冲足够（readyState >= 3 表示有未来数据）
+        if (audioElement.readyState >= 3) {
+          resolve();
+          return;
+        }
+
+        // 监听 canplay 事件（比 canplaythrough 更早触发）
+        const handleCanPlay = () => {
+          audioElement.removeEventListener("canplay", handleCanPlay);
+          resolve();
+        };
+
+        audioElement.addEventListener("canplay", handleCanPlay);
+
+        // 超时保护（10秒，优化后的时间）
+        setTimeout(() => {
+          audioElement.removeEventListener("canplay", handleCanPlay);
+          resolve();
+        }, 10000);
+      });
+
+      await waitForBuffering;
+
+      // 创建 AbortController 用于中止下载
+      const abortController = new AbortController();
+      abortControllers.value.set(songId, abortController);
+
+      // 流式下载完整音频文件（支持进度回调）
+      console.log(`⬇️ 开始流式下载: ${songId}`);
+
+      const response = await fetch(audioUrl, {
+        signal: abortController.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`下载失败: ${response.status}`);
+      }
+
+      const contentLength = response.headers.get("Content-Length");
+      const total = contentLength ? parseInt(contentLength, 10) : 0;
+
+      if (!response.body) {
+        throw new Error("响应体为空");
+      }
+
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let downloaded = 0;
+
+      // 流式读取数据
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        chunks.push(value);
+        downloaded += value.length;
+
+        // 触发进度回调
+        if (onProgress && total > 0) {
+          const percent = (downloaded / total) * 100;
+          onProgress(percent);
+        }
+      }
+
+      // 合并所有数据块
+      const blob = new Blob(chunks as BlobPart[], { type: "audio/mpeg" });
+
+      if (blob.size === 0) {
+        console.error(`❌ 下载的音频文件大小为 0: ${songId}`);
+        return;
+      }
+
+      console.log(
+        `✅ 音频下载完成: ${songId}, 大小: ${(blob.size / 1024 / 1024).toFixed(
+          2
+        )} MB`
+      );
+
+      // 检查缓存大小
+      await ensureCacheSpace();
+
+      // 保存到缓存
+      await saveAudioCache(songId, blob, audioUrl, quality);
+
+      // 触发完成回调，返回 Blob URL
+      if (onComplete) {
+        const blobUrl = URL.createObjectURL(blob);
+        onComplete(blobUrl);
+        console.log(`🎉 缓存完成，可切换到离线播放: ${songId}`);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        console.log(`⏹️ 下载已中止: ${songId}`);
+      } else {
+        console.error("❌ 捕获音频失败:", error);
+      }
+    } finally {
+      downloadingSet.value.delete(songId);
+      abortControllers.value.delete(songId);
+    }
+  };
+
+  // 下载并缓存音频（独立下载，用于预加载等场景）
   const downloadAndCache = async (
     songId: string,
     audioUrl: string,
-    quality: string
+    quality: string,
+    onProgress?: (downloaded: number, total: number) => void,
+    onComplete?: (blobUrl: string) => void
   ): Promise<Blob | null> => {
     try {
       await init();
@@ -176,7 +312,12 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       const alreadyCached = await hasValidCache(songId);
       if (alreadyCached) {
         console.log(`✅ 歌曲 ${songId} 已缓存，跳过下载`);
-        return null;
+        const cachedBlob = await getCachedAudio(songId);
+        if (cachedBlob && onComplete) {
+          const blobUrl = URL.createObjectURL(cachedBlob);
+          onComplete(blobUrl);
+        }
+        return cachedBlob;
       }
 
       // 检查 URL 是否有效
@@ -192,47 +333,79 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       const abortController = new AbortController();
       abortControllers.value.set(songId, abortController);
 
-      console.log(`开始下载音频: ${songId}, 音质: ${quality}`);
-      console.log(`音频 URL: ${audioUrl.substring(0, 100)}...`);
+      console.log(`⬇️ 开始下载音频: ${songId}, 音质: ${quality}`);
 
+      // 使用流式下载，支持进度回调
       const response = await fetch(audioUrl, {
         signal: abortController.signal,
       });
+
       if (!response.ok) {
-        throw new Error(`下载失败: ${response.status}`);
+        throw new Error(`下载失败: ${response.status} ${response.statusText}`);
       }
 
-      const blob = await response.blob();
+      const contentLength = response.headers.get("Content-Length");
+      const total = contentLength ? parseInt(contentLength, 10) : 0;
 
-      // 检查下载的文件是否有效
+      if (!response.body) {
+        throw new Error("响应体为空");
+      }
+
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let downloaded = 0;
+
+      // 流式读取数据
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        chunks.push(value);
+        downloaded += value.length;
+
+        // 触发进度回调
+        if (onProgress && total > 0) {
+          onProgress(downloaded, total);
+        }
+      }
+
+      // 合并所有数据块
+      const blob = new Blob(chunks as BlobPart[], { type: "audio/mpeg" });
+
       if (blob.size === 0) {
-        console.error(`下载的音频文件大小为 0: ${songId}`);
+        console.error(`❌ 下载的音频文件大小为 0: ${songId}`);
         return null;
       }
 
       console.log(
-        `音频下载完成: ${songId}, 大小: ${(blob.size / 1024 / 1024).toFixed(
+        `✅ 音频下载完成: ${songId}, 大小: ${(blob.size / 1024 / 1024).toFixed(
           2
         )} MB`
       );
 
-      // 检查缓存大小，如果超过限制则清理旧缓存
+      // 检查缓存大小
       await ensureCacheSpace();
 
-      // 保存到IndexedDB
+      // 保存到缓存
       await saveAudioCache(songId, blob, audioUrl, quality);
+
+      // 触发完成回调
+      if (onComplete) {
+        const blobUrl = URL.createObjectURL(blob);
+        onComplete(blobUrl);
+        console.log(`🎵 缓存完成: ${songId}`);
+      }
 
       return blob;
     } catch (error) {
-      // 如果是中止错误，不打印错误日志
       if (error instanceof Error && error.name === "AbortError") {
         console.log(`⏹️ 下载已中止: ${songId}`);
       } else {
-        console.error("下载并缓存音频失败:", error);
+        console.error("❌ 下载并缓存音频失败:", error);
       }
       return null;
     } finally {
-      // 无论成功或失败，都移除下载标记和控制器
       downloadingSet.value.delete(songId);
       abortControllers.value.delete(songId);
     }
@@ -556,6 +729,7 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
     hasValidCache,
     getCachedAudio,
     getCachedAudioURL,
+    captureFromAudioElement,
     downloadAndCache,
     abortDownload,
     abortAllDownloads,

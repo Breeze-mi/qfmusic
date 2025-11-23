@@ -21,6 +21,9 @@ export type FontSize = "small" | "medium" | "large";
 // 字体系列
 export type FontFamily = string;
 
+// 卡拉OK样式模式
+export type KaraokeMode = "off" | "style1" | "style2";
+
 const STORAGE_KEY = "music-player-settings";
 
 export const useSettingsStore = defineStore("settings", () => {
@@ -43,6 +46,7 @@ export const useSettingsStore = defineStore("settings", () => {
       lyricActiveFontSize: 32,
       lyricInactiveFontSize: 18,
       showLyricTranslation: true, // 默认显示翻译
+      karaokeMode: 'off', // 默认关闭
     };
   };
 
@@ -78,6 +82,14 @@ export const useSettingsStore = defineStore("settings", () => {
     savedSettings.showLyricTranslation !== false // 默认为 true
   );
 
+  // 卡拉OK样式模式：'off' | 'style1' | 'style2'
+  // off: 关闭（普通整行高亮）
+  // style1: 弹跳效果（逐字弹跳）
+  // style2: 渐变填充效果（从左到右颜色过渡）
+  const karaokeMode = ref<'off' | 'style1' | 'style2'>(
+    savedSettings.karaokeMode || 'off' // 默认关闭
+  );
+
   // 标志：是否正在从其他标签页同步数据（避免循环广播）
   let isSyncing = false;
 
@@ -96,6 +108,7 @@ export const useSettingsStore = defineStore("settings", () => {
         lyricActiveFontSize: lyricActiveFontSize.value,
         lyricInactiveFontSize: lyricInactiveFontSize.value,
         showLyricTranslation: showLyricTranslation.value,
+        karaokeMode: karaokeMode.value,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 
@@ -117,6 +130,7 @@ export const useSettingsStore = defineStore("settings", () => {
       lyricActiveFontSize,
       lyricInactiveFontSize,
       showLyricTranslation,
+      karaokeMode,
     ],
     saveSettings
   );
@@ -135,6 +149,7 @@ export const useSettingsStore = defineStore("settings", () => {
     lyricActiveFontSize.value = data.lyricActiveFontSize || 32;
     lyricInactiveFontSize.value = data.lyricInactiveFontSize || 18;
     showLyricTranslation.value = data.showLyricTranslation !== false;
+    karaokeMode.value = data.karaokeMode || 'off';
 
     // 使用 nextTick 确保在下一个 tick 重置同步标志
     nextTick(() => {
@@ -242,6 +257,11 @@ export const useSettingsStore = defineStore("settings", () => {
     showLyricTranslation.value = show;
   };
 
+  // 设置卡拉OK样式模式
+  const setKaraokeMode = (mode: 'off' | 'style1' | 'style2') => {
+    karaokeMode.value = mode;
+  };
+
   // 应用歌词字体大小到 CSS 变量
   const applyLyricFontSizes = () => {
     const root = document.documentElement;
@@ -267,6 +287,7 @@ export const useSettingsStore = defineStore("settings", () => {
     lyricActiveFontSize,
     lyricInactiveFontSize,
     showLyricTranslation,
+    karaokeMode,
     setQuality,
     setSearchType,
     setFontSize,
@@ -274,6 +295,7 @@ export const useSettingsStore = defineStore("settings", () => {
     setApiBaseUrl,
     setLyricFontSizes,
     setShowLyricTranslation,
+    setKaraokeMode,
     isElectron,
     isProduction,
     isDevelopment,

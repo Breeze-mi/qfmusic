@@ -21,7 +21,7 @@ import { ElMessage } from "element-plus";
 import MusicApi from "@/api/music";
 import { useSearchStore } from "@/stores/search";
 import { useSettingsStore } from "@/stores/settings";
-import { resetAPIHealthStatus } from "@/utils/request";
+// import { resetAPIHealthStatus } from "@/utils/request"; // 已禁用健康检查
 import { debounce } from "@/utils/helpers";
 
 const searchStore = useSearchStore();
@@ -88,8 +88,8 @@ const handleSearch = async () => {
         return;
     }
 
-    // 用户主动搜索时，重置健康检查状态，允许重新检测服务器
-    resetAPIHealthStatus();
+    // 用户主动搜索时，重置健康检查状态（可选功能，已禁用）
+    // resetAPIHealthStatus();
 
     searchStore.setSearching(true);
     try {

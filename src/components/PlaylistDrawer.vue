@@ -154,7 +154,7 @@ const handleSongClick = (index: number, event: MouseEvent) => {
         event.preventDefault();
         // 确定范围选择的起点：优先使用 focusedIndex，其次使用 lastSelectedIndex
         const startIndex = focusedIndex.value !== null ? focusedIndex.value :
-                          (lastSelectedIndex.value !== null ? lastSelectedIndex.value : index);
+            (lastSelectedIndex.value !== null ? lastSelectedIndex.value : index);
 
         // 清除聚焦状态
         focusedIndex.value = null;
@@ -184,10 +184,17 @@ const handlePlaySong = (index: number) => {
     // 使用 playerStore 的 switchToIndex 方法切换歌曲
     if (index >= 0 && index < playerStore.playlist.length) {
         const song = playerStore.playlist[index];
-        playerStore.currentIndex = index;
-        playerStore.currentSong = song; // 手动设置 currentSong
-        playerStore.isPlaying = true;
-        ElMessage.success(`开始播放：${song.name}`);
+
+        // 如果是当前正在播放的歌曲，使用 switchToIndex 来重新播放
+        if (index === playerStore.currentIndex) {
+            playerStore.switchToIndex(index);
+            // ElMessage.success(`重新播放：${song.name}`);
+        } else {
+            playerStore.currentIndex = index;
+            playerStore.currentSong = song; // 手动设置 currentSong
+            playerStore.isPlaying = true;
+            ElMessage.success(`开始播放：${song.name}`);
+        }
     }
     // 清空选中状态和聚焦状态
     selectedIndices.value.clear();
@@ -632,6 +639,10 @@ const handleDrop = (targetIndex: number, event: DragEvent) => {
                     color: var(--song-playing-text);
                 }
 
+                .song-artist {
+                    color: var(--song-playing-text-secondary);
+                }
+
                 .playing-icon {
                     color: var(--song-playing-text);
                 }
@@ -656,6 +667,28 @@ const handleDrop = (targetIndex: number, event: DragEvent) => {
                 background: var(--song-playing-bg);
                 // 没有左边的红色竖线，只是临时高亮
 
+                .song-name {
+                    color: var(--el-text-color-primary);
+                }
+
+                .song-artist {
+                    color: var(--el-text-color-secondary);
+                }
+            }
+
+            // 当同时是 is-playing 和 is-selected 时，使用 selected 的样式
+            &.is-playing.is-selected {
+                .song-name {
+                    color: var(--song-selected-text);
+                }
+
+                .song-artist {
+                    color: var(--el-text-color-secondary);
+                }
+            }
+
+            // 当同时是 is-playing 和 is-focused 时，使用 focused 的样式
+            &.is-playing.is-focused {
                 .song-name {
                     color: var(--el-text-color-primary);
                 }
@@ -722,7 +755,6 @@ const handleDrop = (targetIndex: number, event: DragEvent) => {
                 .song-name {
                     font-size: 14px;
                     font-weight: 500;
-                    color: var(--el-text-color-primary);
                     overflow: hidden;
                     text-overflow: ellipsis;
                     white-space: nowrap;
@@ -732,11 +764,21 @@ const handleDrop = (targetIndex: number, event: DragEvent) => {
 
                 .song-artist {
                     font-size: 12px;
-                    color: var(--el-text-color-secondary);
                     overflow: hidden;
                     text-overflow: ellipsis;
                     white-space: nowrap;
                     line-height: 1.3;
+                }
+            }
+
+            // 默认状态的颜色（没有任何特殊状态时）
+            &:not(.is-playing):not(.is-selected):not(.is-focused) {
+                .song-name {
+                    color: var(--el-text-color-primary);
+                }
+
+                .song-artist {
+                    color: var(--el-text-color-secondary);
                 }
             }
 

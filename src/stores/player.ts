@@ -131,12 +131,12 @@ export const usePlayerStore = defineStore("player", () => {
 
   // 播放指定歌曲
   const playSong = (song: Song) => {
-    // 重置 API 健康检查状态（用户主动操作）
-    if (typeof window !== "undefined") {
-      import("@/utils/request").then(({ resetAPIHealthStatus }) => {
-        resetAPIHealthStatus();
-      });
-    }
+    // 重置 API 健康检查状态（可选功能，已禁用）
+    // if (typeof window !== "undefined") {
+    //   import("@/utils/request").then(({ resetAPIHealthStatus }) => {
+    //     resetAPIHealthStatus();
+    //   });
+    // }
 
     const index = playlist.value.findIndex((s) => s.id === song.id);
     if (index === -1) {
@@ -154,23 +154,30 @@ export const usePlayerStore = defineStore("player", () => {
         `添加歌曲到播放列表: ${song.name}, 当前列表长度: ${playlist.value.length}, 索引: ${newIndex}`
       );
     } else {
-      // 歌曲已在播放列表中，直接切换到该歌曲
-      currentIndex.value = index;
-      // ✅ 直接设置 currentSong，避免 computed 的多次触发
-      currentSong.value = song;
-      console.log(`切换到播放列表中的歌曲: ${song.name}, 索引: ${index}`);
+      // 歌曲已在播放列表中
+      // 如果是当前正在播放的歌曲，重置播放进度（从头开始播放）
+      if (index === currentIndex.value && currentSong.value?.id === song.id) {
+        reloadTimestamp.value = Date.now();
+        console.log(`重新播放当前歌曲: ${song.name}`);
+      } else {
+        // 切换到该歌曲
+        currentIndex.value = index;
+        // ✅ 直接设置 currentSong，避免 computed 的多次触发
+        currentSong.value = song;
+        console.log(`切换到播放列表中的歌曲: ${song.name}, 索引: ${index}`);
+      }
     }
     isPlaying.value = true;
   };
 
   // 播放/暂停
   const togglePlay = () => {
-    // 重置 API 健康检查状态（用户主动操作）
-    if (typeof window !== "undefined") {
-      import("@/utils/request").then(({ resetAPIHealthStatus }) => {
-        resetAPIHealthStatus();
-      });
-    }
+    // 重置 API 健康检查状态（可选功能，已禁用）
+    // if (typeof window !== "undefined") {
+    //   import("@/utils/request").then(({ resetAPIHealthStatus }) => {
+    //     resetAPIHealthStatus();
+    //   });
+    // }
     isPlaying.value = !isPlaying.value;
   };
 
@@ -204,12 +211,12 @@ export const usePlayerStore = defineStore("player", () => {
   const playPrev = () => {
     if (playlist.value.length === 0) return;
 
-    // 重置 API 健康检查状态（用户主动操作）
-    if (typeof window !== "undefined") {
-      import("@/utils/request").then(({ resetAPIHealthStatus }) => {
-        resetAPIHealthStatus();
-      });
-    }
+    // 重置 API 健康检查状态（可选功能，已禁用）
+    // if (typeof window !== "undefined") {
+    //   import("@/utils/request").then(({ resetAPIHealthStatus }) => {
+    //     resetAPIHealthStatus();
+    //   });
+    // }
 
     let newIndex: number;
     if (playMode.value === PlayMode.RANDOM) {
@@ -231,12 +238,12 @@ export const usePlayerStore = defineStore("player", () => {
   const playNext = () => {
     if (playlist.value.length === 0) return;
 
-    // 重置 API 健康检查状态（用户主动操作）
-    if (typeof window !== "undefined") {
-      import("@/utils/request").then(({ resetAPIHealthStatus }) => {
-        resetAPIHealthStatus();
-      });
-    }
+    // 重置 API 健康检查状态（可选功能，已禁用）
+    // if (typeof window !== "undefined") {
+    //   import("@/utils/request").then(({ resetAPIHealthStatus }) => {
+    //     resetAPIHealthStatus();
+    //   });
+    // }
 
     let newIndex: number;
     if (playMode.value === PlayMode.RANDOM) {
@@ -324,7 +331,7 @@ export const usePlayerStore = defineStore("player", () => {
     currentTime.value = time;
 
     // 保存当前歌曲的播放进度（每2秒保存一次）
-    if (currentSong.value && time > 0 && Math.floor(time) % 4 === 0) {
+    if (currentSong.value && time > 0 && Math.floor(time) % 2 === 0) {
       savedProgress.value[currentSong.value.id] = time;
     }
   };
@@ -376,6 +383,7 @@ export const usePlayerStore = defineStore("player", () => {
     togglePlay,
     playPrev,
     playNext,
+    switchToIndex,
     togglePlayMode,
     removeFromPlaylist,
     clearPlaylist,

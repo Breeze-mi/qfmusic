@@ -48,7 +48,7 @@ export const lightThemeColors: ThemeColors = {
   lyricActiveText: "#333333",
   lyricInactiveText: "#999999",
   lyricInactiveOpacity: "0.5",
-  lyricActiveShadow: "rgba(236, 65, 65, 0.2)",
+  lyricActiveShadow: "transparent", // 移除阴影
 };
 
 // 暗色主题默认配置
@@ -61,7 +61,7 @@ export const darkThemeColors: ThemeColors = {
   primaryDark2: "#d13838",
   selectedBg: "rgba(236, 65, 65, 0.15)",
   selectedBorder: "#ec4141",
-  selectedText: "#eeeeee",
+  selectedText: "#ffffff", // 使用白色提高对比度
   playingBg: "rgba(236, 65, 65, 0.12)",
   playingText: "#ec4141",
   playingTextSecondary: "#cccccc",
@@ -69,7 +69,7 @@ export const darkThemeColors: ThemeColors = {
   lyricActiveText: "#ffffff",
   lyricInactiveText: "#888888",
   lyricInactiveOpacity: "0.4",
-  lyricActiveShadow: "rgba(236, 65, 65, 0.3)",
+  lyricActiveShadow: "transparent", // 移除阴影
 };
 
 /**
@@ -138,11 +138,13 @@ export const neteaseRedTheme: Partial<ThemeColors> = {
   primaryLight7: "#f8adad",
   primaryLight9: "#fcd1d1",
   primaryDark2: "#d13838",
-  selectedBg: "#fef0f0",
+  selectedBg: "rgba(236, 65, 65, 0.12)", // 使用半透明背景，适配暗色模式
   selectedBorder: "#ec4141",
   // selectedText 不设置，自动根据深浅模式使用 baseColors 的值
-  playingBg: "#fef0f0",
+  playingBg: "rgba(236, 65, 65, 0.12)", // 使用半透明背景，适配暗色模式
   playingText: "#ec4141",
+  lyricActiveText: "#ec4141", // 歌词激活颜色跟随主题
+  lyricActiveShadow: "transparent", // 移除阴影
 };
 
 export const kugouBlueTheme: Partial<ThemeColors> = {
@@ -157,6 +159,8 @@ export const kugouBlueTheme: Partial<ThemeColors> = {
   // selectedText 不设置，自动根据深浅模式使用 baseColors 的值
   playingBg: "rgba(40, 120, 255, 0.12)",
   playingText: "#2878ff",
+  lyricActiveText: "#2878ff", // 歌词激活颜色跟随主题
+  lyricActiveShadow: "transparent", // 移除阴影
 };
 
 export const qqGreenTheme: Partial<ThemeColors> = {
@@ -171,6 +175,8 @@ export const qqGreenTheme: Partial<ThemeColors> = {
   // selectedText 不设置，自动根据深浅模式使用 baseColors 的值
   playingBg: "rgba(49, 194, 124, 0.12)",
   playingText: "#31c27c",
+  lyricActiveText: "#31c27c", // 歌词激活颜色跟随主题
+  lyricActiveShadow: "transparent", // 移除阴影
 };
 
 export const orangeTheme: Partial<ThemeColors> = {
@@ -185,6 +191,8 @@ export const orangeTheme: Partial<ThemeColors> = {
   // selectedText 不设置，自动根据深浅模式使用 baseColors 的值
   playingBg: "rgba(255, 152, 0, 0.12)",
   playingText: "#ff9800",
+  lyricActiveText: "#ff9800", // 歌词激活颜色跟随主题
+  lyricActiveShadow: "transparent", // 移除阴影
 };
 
 export const pinkTheme: Partial<ThemeColors> = {
@@ -199,6 +207,8 @@ export const pinkTheme: Partial<ThemeColors> = {
   // selectedText 不设置，自动根据深浅模式使用 baseColors 的值
   playingBg: "rgba(233, 30, 99, 0.12)",
   playingText: "#e91e63",
+  lyricActiveText: "#e91e63", // 歌词激活颜色跟随主题
+  lyricActiveShadow: "transparent", // 移除阴影
 };
 
 export const purpleTheme: Partial<ThemeColors> = {
@@ -213,11 +223,13 @@ export const purpleTheme: Partial<ThemeColors> = {
   // selectedText 不设置，自动根据深浅模式使用 baseColors 的值
   playingBg: "rgba(156, 39, 176, 0.12)",
   playingText: "#9c27b0",
+  lyricActiveText: "#9c27b0", // 歌词激活颜色跟随主题
+  lyricActiveShadow: "transparent", // 移除阴影
 };
 
 // 主题预设映射
 export const themePresets = {
-  default: null,
+  default: neteaseRedTheme, // 默认使用网易红主题
   netease: neteaseRedTheme,
   kugou: kugouBlueTheme,
   qq: qqGreenTheme,

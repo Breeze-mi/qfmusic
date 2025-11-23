@@ -52,11 +52,11 @@ export interface Album {
 
 // 音乐 API
 const MusicApi = {
-  // 健康检查
-  health: async () => {
-    const response = await Request.get<ApiResponse>("/health");
-    return response.data;
-  },
+  // 健康检查（可选功能，第三方API可能没有此接口）
+  // health: async () => {
+  //   const response = await Request.get<ApiResponse>("/health");
+  //   return response.data;
+  // },
 
   // 搜索歌曲
   search: async (keyword: string, limit: number = 30) => {

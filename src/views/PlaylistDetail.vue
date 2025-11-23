@@ -885,7 +885,6 @@ onUnmounted(() => {
                         .song-name {
                             font-size: var(--custom-font-size-base);
                             font-weight: 500;
-                            color: var(--el-text-color-primary);
                             overflow: hidden;
                             text-overflow: ellipsis;
                             white-space: nowrap;
@@ -896,7 +895,6 @@ onUnmounted(() => {
                         width: 280px;
                         flex-shrink: 1;
                         font-size: var(--custom-font-size-md);
-                        color: var(--el-text-color-secondary);
                         overflow: hidden;
                         text-overflow: ellipsis;
                         white-space: nowrap;
@@ -907,11 +905,22 @@ onUnmounted(() => {
                         width: 200px;
                         flex-shrink: 1;
                         font-size: var(--custom-font-size-md);
-                        color: var(--el-text-color-secondary);
                         overflow: hidden;
                         text-overflow: ellipsis;
                         white-space: nowrap;
                         text-align: left;
+                    }
+
+                    // 默认状态的颜色（没有任何特殊状态时）
+                    &:not(.is-playing):not(.is-selected):not(.is-invalid) {
+                        .col-name .song-name {
+                            color: var(--el-text-color-primary);
+                        }
+
+                        .col-artist,
+                        .col-album {
+                            color: var(--el-text-color-secondary);
+                        }
                     }
 
                     .col-actions {

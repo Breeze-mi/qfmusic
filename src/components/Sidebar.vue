@@ -354,8 +354,8 @@ onUnmounted(() => {
         &.active {
             background: var(--sidebar-active-bg);
             color: white;
-            box-shadow: 0 2px 8px var(--sidebar-active-shadow);
-            transition: background 0.3s, box-shadow 0.3s;
+            box-shadow: none;
+            transition: background 0.3s;
 
             .el-icon {
                 color: white;
