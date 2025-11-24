@@ -2,7 +2,8 @@
     <span ref="charRef" class="lyric-char" :class="[
         mode === 'style1' ? 'style1' : 'style2',
         animationState,
-        { 'is-passed': isPassed }
+        { 'is-passed': isPassed },
+        { 'is-space': char.text === ' ' }
     ]">{{ char.text }}</span>
 </template>
 
@@ -32,7 +33,9 @@ const relativeTime = computed(() => props.currentTime - props.lineTime);
 
 // 计算动画持续时间（毫秒）
 const animationDuration = computed(() => {
-    return (props.char.endTime - props.char.startTime) * 1000;
+    const duration = (props.char.endTime - props.char.startTime) * 1000;
+    // 确保持续时间为正数，最小值为50ms
+    return Math.max(duration, 50);
 });
 
 /**
@@ -244,6 +247,12 @@ onUnmounted(() => {
     // 抗锯齿
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+
+    // 空格字符保持可见宽度
+    &.is-space {
+        white-space: pre; // 保留空格
+        min-width: 0.3em; // 确保空格有最小宽度
+    }
 
     // Style1: 弹跳效果
     &.style1 {

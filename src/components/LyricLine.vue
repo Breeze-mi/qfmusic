@@ -21,14 +21,16 @@
         </div>
 
         <!-- 翻译文本 -->
-        <div v-if="line.ttext" class="lyric-translation">
+        <div v-if="shouldShowTranslation" class="lyric-translation">
             {{ line.ttext }}
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { LyricLine as LyricLineType } from '@/utils/lyricParser';
+import { useSettingsStore } from '@/stores/settings';
 import LyricChar from './LyricChar.vue';
 
 // Props 定义
@@ -40,7 +42,13 @@ interface Props {
     karaokeMode: 'off' | 'style1' | 'style2'; // 卡拉OK模式
 }
 
-defineProps<Props>();
+const props = defineProps<Props>();
+const settingsStore = useSettingsStore();
+
+// 是否显示翻译（根据设置和是否有翻译内容）
+const shouldShowTranslation = computed(() => {
+    return settingsStore.showLyricTranslation && props.line.ttext;
+});
 </script>
 
 <style scoped lang="scss">
