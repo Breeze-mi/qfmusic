@@ -59,6 +59,10 @@ const containerHeight = ref<number>(0);
 const prevActiveLine = ref<number>(0); // 记录前一个激活的歌词行索引
 const lineHeights = ref<Map<number, number>>(new Map()); // 记录每行的原始高度（未激活时）
 
+// 用户交互控制
+const isUserScrolling = ref(false); // 用户是否正在手动滚动
+const userScrollTimer = ref<number | null>(null); // 恢复自动滚动的定时器
+
 // 检查是否有元信息
 const hasMetaInfo = computed(() => {
     return !!(
@@ -249,6 +253,50 @@ function handleResize() {
 }
 
 /**
+ * 处理用户手动滚动
+ * 当用户手动滚动时，停止自动滚动，3秒后恢复
+ */
+function handleUserScroll() {
+    // 🔑 关键：如果是自动滚动触发的，不处理
+    if (isScrolling.value) {
+        return;
+    }
+
+    // 标记用户正在滚动
+    isUserScrolling.value = true;
+
+    // 取消当前的自动滚动动画
+    if (scrollAnimationId.value !== null) {
+        cancelAnimationFrame(scrollAnimationId.value);
+        scrollAnimationId.value = null;
+    }
+
+    // 取消延迟滚动
+    if (scrollDelayTimer.value !== null) {
+        clearTimeout(scrollDelayTimer.value);
+        scrollDelayTimer.value = null;
+    }
+
+    // 清除之前的恢复定时器
+    if (userScrollTimer.value !== null) {
+        clearTimeout(userScrollTimer.value);
+    }
+
+    // 2.1秒后恢复自动滚动
+    userScrollTimer.value = window.setTimeout(() => {
+        isUserScrolling.value = false;
+        userScrollTimer.value = null;
+
+        // 🔑 自动恢复：如果正在播放，滚动到当前播放位置
+        if (props.isPlaying && currentLyricIndex.value >= 0) {
+            nextTick(() => {
+                scrollToCurrentLyric(false);
+            });
+        }
+    }, 2100);
+}
+
+/**
  * 清理资源
  */
 function cleanup() {
@@ -260,6 +308,10 @@ function cleanup() {
         clearTimeout(scrollDelayTimer.value);
         scrollDelayTimer.value = null;
     }
+    if (userScrollTimer.value !== null) {
+        clearTimeout(userScrollTimer.value);
+        userScrollTimer.value = null;
+    }
     lineRefs.value.clear();
 }
 
@@ -269,6 +321,16 @@ const scrollDelayTimer = ref<number | null>(null);
 // 监听当前歌词索引变化，自动滚动
 watch(currentLyricIndex, (newIndex, oldIndex) => {
     if (newIndex < 0 || newIndex === oldIndex) {
+        return;
+    }
+
+    // 🔑 用户交互停止：如果用户正在手动滚动，不执行自动滚动
+    if (isUserScrolling.value) {
+        return;
+    }
+
+    // 🔑 播放状态检查：如果不在播放，不执行自动滚动
+    if (!props.isPlaying) {
         return;
     }
 
@@ -291,11 +353,10 @@ watch(currentLyricIndex, (newIndex, oldIndex) => {
         });
     } else {
         // 正常连续播放：先让歌词变色（高亮、放大），延迟后再滚动
-        // 延迟 600ms 让用户充分看到变色和卡拉OK动画效果
+        // 延迟 500ms 让用户充分看到变色和卡拉OK动画效果
         scrollDelayTimer.value = window.setTimeout(() => {
             nextTick(() => {
                 // 不指定时长，让 scrollToCurrentLyric 根据滚动方向自动计算
-                // 向上滚动会使用 3000-5000ms，向下滚动使用 1500-2900ms
                 scrollToCurrentLyric(false);
                 prevActiveLine.value = newIndex;
             });
@@ -330,11 +391,21 @@ onMounted(() => {
 
     // 监听窗口大小变化
     window.addEventListener('resize', handleResize);
+
+    // 🔑 监听用户滚动事件
+    if (containerRef.value) {
+        containerRef.value.addEventListener('scroll', handleUserScroll, { passive: true });
+    }
 });
 
 onUnmounted(() => {
     cleanup();
     window.removeEventListener('resize', handleResize);
+
+    // 移除滚动事件监听
+    if (containerRef.value) {
+        containerRef.value.removeEventListener('scroll', handleUserScroll);
+    }
 });
 </script>
 
