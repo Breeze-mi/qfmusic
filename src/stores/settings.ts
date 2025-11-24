@@ -46,7 +46,9 @@ export const useSettingsStore = defineStore("settings", () => {
       lyricActiveFontSize: 32,
       lyricInactiveFontSize: 18,
       showLyricTranslation: true, // 默认显示翻译
-      karaokeMode: 'off', // 默认关闭
+      karaokeMode: "off", // 默认关闭
+      globalLyricOffset: 0, // 全局歌词偏移量（秒）
+      songLyricOffsets: {}, // 单曲歌词偏移量（Map）
     };
   };
 
@@ -86,8 +88,16 @@ export const useSettingsStore = defineStore("settings", () => {
   // off: 关闭（普通整行高亮）
   // style1: 弹跳效果（逐字弹跳）
   // style2: 渐变填充效果（从左到右颜色过渡）
-  const karaokeMode = ref<'off' | 'style1' | 'style2'>(
-    savedSettings.karaokeMode || 'off' // 默认关闭
+  const karaokeMode = ref<"off" | "style1" | "style2">(
+    savedSettings.karaokeMode || "off" // 默认关闭
+  );
+
+  // 全局歌词偏移量（秒）
+  const globalLyricOffset = ref<number>(savedSettings.globalLyricOffset || 0);
+
+  // 单曲歌词偏移量（Map: songId -> offset）
+  const songLyricOffsets = ref<Record<string, number>>(
+    savedSettings.songLyricOffsets || {}
   );
 
   // 标志：是否正在从其他标签页同步数据（避免循环广播）
@@ -109,6 +119,8 @@ export const useSettingsStore = defineStore("settings", () => {
         lyricInactiveFontSize: lyricInactiveFontSize.value,
         showLyricTranslation: showLyricTranslation.value,
         karaokeMode: karaokeMode.value,
+        globalLyricOffset: globalLyricOffset.value,
+        songLyricOffsets: songLyricOffsets.value,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 
@@ -131,8 +143,11 @@ export const useSettingsStore = defineStore("settings", () => {
       lyricInactiveFontSize,
       showLyricTranslation,
       karaokeMode,
+      globalLyricOffset,
+      songLyricOffsets,
     ],
-    saveSettings
+    saveSettings,
+    { deep: true }
   );
 
   // 订阅其他标签页的更新
@@ -149,7 +164,9 @@ export const useSettingsStore = defineStore("settings", () => {
     lyricActiveFontSize.value = data.lyricActiveFontSize || 32;
     lyricInactiveFontSize.value = data.lyricInactiveFontSize || 18;
     showLyricTranslation.value = data.showLyricTranslation !== false;
-    karaokeMode.value = data.karaokeMode || 'off';
+    karaokeMode.value = data.karaokeMode || "off";
+    globalLyricOffset.value = data.globalLyricOffset || 0;
+    songLyricOffsets.value = data.songLyricOffsets || {};
 
     // 使用 nextTick 确保在下一个 tick 重置同步标志
     nextTick(() => {
@@ -258,7 +275,7 @@ export const useSettingsStore = defineStore("settings", () => {
   };
 
   // 设置卡拉OK样式模式
-  const setKaraokeMode = (mode: 'off' | 'style1' | 'style2') => {
+  const setKaraokeMode = (mode: "off" | "style1" | "style2") => {
     karaokeMode.value = mode;
   };
 
@@ -278,6 +295,25 @@ export const useSettingsStore = defineStore("settings", () => {
   // 初始化时应用歌词字体大小
   applyLyricFontSizes();
 
+  // 获取歌词偏移量（优先使用单曲偏移量，否则使用全局偏移量）
+  const getLyricOffset = (songId?: string): number => {
+    if (songId && songLyricOffsets.value[songId] !== undefined) {
+      return songLyricOffsets.value[songId];
+    }
+    return globalLyricOffset.value;
+  };
+
+  // 设置歌词偏移量
+  const setLyricOffset = (offset: number, songId?: string) => {
+    if (songId) {
+      // 设置单曲偏移量
+      songLyricOffsets.value[songId] = offset;
+    } else {
+      // 设置全局偏移量
+      globalLyricOffset.value = offset;
+    }
+  };
+
   return {
     quality,
     searchType,
@@ -288,6 +324,8 @@ export const useSettingsStore = defineStore("settings", () => {
     lyricInactiveFontSize,
     showLyricTranslation,
     karaokeMode,
+    globalLyricOffset,
+    songLyricOffsets,
     setQuality,
     setSearchType,
     setFontSize,
@@ -296,6 +334,8 @@ export const useSettingsStore = defineStore("settings", () => {
     setLyricFontSizes,
     setShowLyricTranslation,
     setKaraokeMode,
+    getLyricOffset,
+    setLyricOffset,
     isElectron,
     isProduction,
     isDevelopment,

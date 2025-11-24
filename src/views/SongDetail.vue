@@ -30,32 +30,11 @@
 
             <!-- 右侧：歌词 -->
             <div class="right-section">
-                <!-- 样式二：使用Canvas渲染 -->
-                <div v-if="settingsStore.karaokeMode === 'style2' && lyrics.length > 0" class="lyrics-container-canvas">
-                    <LyricCanvasRenderer :lyrics="lyrics" :currentLyricIndex="currentLyricIndex"
-                        :currentTime="playerStore.currentTime" />
-                </div>
-                <!-- 其他样式：使用DOM渲染 -->
-                <div v-else class="lyrics-container" ref="lyricsContainerRef">
-                    <div v-if="lyrics.length > 0" class="lyrics">
-                        <div v-for="(line, index) in lyrics" :key="index" class="lyric-item"
-                            :class="{ active: index === currentLyricIndex }"
-                            :ref="(el: any) => { if (index === currentLyricIndex) currentLyricRef = el }">
-                            <!-- 卡拉OK样式一：弹跳效果 -->
-                            <div v-if="settingsStore.karaokeMode === 'style1' && line.chars && line.chars.length > 0"
-                                class="lyric-line karaoke-style1">
-                                <span v-for="(char, charIndex) in line.chars" :key="charIndex" class="lyric-char"
-                                    :class="getCharClass(index, line, char)" :style="getCharStyle(char)">
-                                    {{ char.text }}
-                                </span>
-                            </div>
-                            <!-- 普通模式：整行高亮 -->
-                            <div v-else class="lyric-line">{{ line.text }}</div>
-                            <div v-if="settingsStore.showLyricTranslation && line.ttext" class="lyric-translation">
-                                {{ line.ttext }}
-                            </div>
-                        </div>
-                    </div>
+                <!-- 歌词渲染器 -->
+                <div class="lyrics-container">
+                    <LyricRenderer v-if="lyrics.length > 0" :lyrics="lyrics" :meta-info="metaInfo"
+                        :current-time="playerStore.currentTime" :is-playing="playerStore.isPlaying"
+                        :karaoke-mode="settingsStore.karaokeMode" :lyric-offset="lyricOffset" />
                     <div v-else class="no-lyrics">
                         <el-empty description="暂无歌词" />
                     </div>
@@ -66,20 +45,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted } from "vue";
+import { ref, watch, computed } from "vue";
 import { useRouter } from "vue-router";
 import { Setting, Sunny, Moon } from "@element-plus/icons-vue";
 import { usePlayerStore } from "@/stores/player";
 import { useThemeStore } from "@/stores/theme";
 import { useSettingsStore } from "@/stores/settings";
-import LyricCanvasRenderer from "@/components/LyricCanvasRenderer.vue";
 import {
     parseLyric,
-    getCharHighlightClass,
-    getCharAnimationStyle,
     type LyricLine,
-    type LyricChar,
+    type LyricMetaInfo,
 } from "@/utils/lyricParser";
+import LyricRenderer from "@/components/LyricRenderer.vue";
 
 const router = useRouter();
 const playerStore = usePlayerStore();
@@ -91,126 +68,29 @@ const navigateToSettings = () => {
 };
 
 const lyrics = ref<LyricLine[]>([]);
-const currentLyricIndex = ref(0);
-const lyricsContainerRef = ref<HTMLElement>();
-const currentLyricRef = ref<HTMLElement>();
-let scrollTimer: number | null = null;
-let scrollAnimationFrame: number | null = null;
+const metaInfo = ref<LyricMetaInfo>({});
 
-// 包装函数：调用工具函数
-const getCharClass = (lineIndex: number, line: LyricLine, char: LyricChar) => {
-    return getCharHighlightClass(
-        lineIndex,
-        currentLyricIndex.value,
-        playerStore.currentTime,
-        line,
-        char
-    );
-};
-
-const getCharStyle = (char: LyricChar) => {
-    return getCharAnimationStyle(char);
-};
+// 获取当前歌曲的歌词偏移量
+const lyricOffset = computed(() => {
+    const songId = playerStore.currentSong?.id?.toString();
+    return settingsStore.getLyricOffset(songId);
+});
 
 // 监听歌曲详情变化，解析歌词
 watch(
     () => playerStore.currentSongDetail,
     (detail) => {
         if (detail?.lyric) {
-            lyrics.value = parseLyric(detail.lyric, detail.tlyric);
+            const parsed = parseLyric(detail.lyric, detail.tlyric);
+            lyrics.value = parsed.lyrics;
+            metaInfo.value = parsed.metaInfo;
         } else {
             lyrics.value = [];
+            metaInfo.value = {};
         }
-        currentLyricIndex.value = 0;
     },
     { immediate: true }
 );
-
-// 监听播放时间，更新当前歌词
-watch(
-    () => playerStore.currentTime,
-    (time) => {
-        if (lyrics.value.length === 0) return;
-
-        for (let i = 0; i < lyrics.value.length; i++) {
-            if (time < lyrics.value[i].time) {
-                const newIndex = Math.max(0, i - 1);
-                if (newIndex !== currentLyricIndex.value) {
-                    currentLyricIndex.value = newIndex;
-                    scrollToCurrentLyric();
-                }
-                break;
-            }
-            if (i === lyrics.value.length - 1) {
-                if (currentLyricIndex.value !== i) {
-                    currentLyricIndex.value = i;
-                    scrollToCurrentLyric();
-                }
-            }
-        }
-    }
-);
-
-// 缓动函数：easeOutCubic，让滚动更自然
-const easeOutCubic = (t: number): number => {
-    return 1 - Math.pow(1 - t, 3);
-};
-
-// 自定义平滑滚动动画
-const smoothScrollTo = (element: HTMLElement, targetScrollTop: number, duration: number) => {
-    const startScrollTop = element.scrollTop;
-    const distance = targetScrollTop - startScrollTop;
-    const startTime = performance.now();
-
-    // 取消之前的动画，避免多个动画冲突
-    if (scrollAnimationFrame !== null) {
-        cancelAnimationFrame(scrollAnimationFrame);
-    }
-
-    const animateScroll = (currentTime: number) => {
-        const elapsed = currentTime - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        const easedProgress = easeOutCubic(progress);
-
-        element.scrollTop = startScrollTop + distance * easedProgress;
-
-        if (progress < 1) {
-            scrollAnimationFrame = requestAnimationFrame(animateScroll);
-        } else {
-            scrollAnimationFrame = null;
-        }
-    };
-
-    scrollAnimationFrame = requestAnimationFrame(animateScroll);
-};
-
-// 滚动到当前歌词（带延迟）
-const scrollToCurrentLyric = () => {
-    if (scrollTimer !== null) {
-        clearTimeout(scrollTimer);
-    }
-
-    scrollTimer = window.setTimeout(() => {
-        nextTick(() => {
-            if (currentLyricRef.value && lyricsContainerRef.value) {
-                const container = lyricsContainerRef.value;
-                const lyric = currentLyricRef.value as HTMLElement;
-                const containerHeight = container.clientHeight;
-                const lyricTop = lyric.offsetTop;
-                const lyricHeight = lyric.clientHeight;
-                const targetScrollTop = lyricTop - containerHeight / 2 + lyricHeight / 2;
-
-                smoothScrollTo(container, targetScrollTop, 2000);
-            }
-        });
-    }, 1000);
-};
-
-onMounted(() => {
-    if (playerStore.currentSongDetail?.lyric) {
-        lyrics.value = parseLyric(playerStore.currentSongDetail.lyric, playerStore.currentSongDetail.tlyric);
-    }
-});
 </script>
 
 <style scoped lang="scss">
@@ -330,166 +210,15 @@ onMounted(() => {
             display: flex;
             flex-direction: column;
             min-width: 0;
+            position: relative;
 
-            .lyrics-container-canvas {
+            .lyrics-container {
                 flex: 1;
                 background: var(--lyric-bg);
                 border-radius: 12px;
                 transition: background 0.3s;
                 overflow: hidden;
-            }
-
-            .lyrics-container {
-                flex: 1;
-                overflow-y: auto;
-                padding: 20px;
-                background: var(--lyric-bg);
-                border-radius: 12px;
-                scroll-behavior: auto; // 禁用浏览器默认的平滑滚动，使用自定义动画
-                transition: background 0.3s;
-
-                &::-webkit-scrollbar {
-                    width: 8px;
-                }
-
-                &::-webkit-scrollbar-track {
-                    background: var(--el-fill-color-light);
-                    border-radius: 4px;
-                }
-
-                &::-webkit-scrollbar-thumb {
-                    background: var(--el-fill-color-dark);
-                    border-radius: 4px;
-
-                    &:hover {
-                        background: var(--el-text-color-secondary);
-                    }
-                }
-
-                .lyrics {
-                    padding: 100px 20px;
-
-                    .lyric-item {
-                        text-align: center;
-                        padding: 8px 0;
-                        cursor: default;
-                        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-
-                        .lyric-line {
-                            font-size: var(--lyric-inactive-font-size, 18px);
-                            line-height: 2;
-                            color: var(--lyric-inactive-text);
-                            opacity: 0.75;
-
-                            // 卡拉OK样式一：弹跳效果
-                            &.karaoke-style1 {
-                                .lyric-char {
-                                    display: inline-block;
-                                    transition: color 0.15s ease-out,
-                                        opacity 0.15s ease-out,
-                                        font-weight 0.15s ease-out,
-                                        text-shadow 0.15s ease-out;
-                                    transform-origin: center bottom;
-                                    will-change: transform;
-
-                                    color: inherit;
-                                    opacity: inherit;
-
-                                    &.char-singing {
-                                        color: var(--lyric-active-text, var(--el-color-primary));
-                                        opacity: 1;
-                                        font-weight: 700;
-                                        text-shadow: 0 2px 12px var(--lyric-active-shadow);
-                                        animation: karaoke-bounce var(--animation-duration, 0.4s) cubic-bezier(0.34, 1.56, 0.64, 1);
-                                    }
-
-                                    &.char-sung {
-                                        color: var(--lyric-active-text, var(--el-color-primary));
-                                        opacity: 0.9;
-                                        font-weight: 600;
-                                        transform: scale(1);
-                                        transition: all 0.2s ease-out;
-                                    }
-                                }
-                            }
-
-                            // 卡拉OK样式二：整行渐变填充效果（完美方案）
-                            &.karaoke-style2 {
-                                position: relative;
-                                font-weight: 600;
-
-                                // 基础文本层（未播放颜色）
-                                .lyric-text-base {
-                                    color: var(--lyric-inactive-text);
-                                    opacity: 0.75;
-                                }
-
-                                // 渐变文本层（已播放颜色）
-                                .lyric-text-gradient {
-                                    position: absolute;
-                                    left: 0;
-                                    top: 0;
-                                    color: var(--lyric-active-text, var(--el-color-primary));
-
-                                    // 使用clip-path裁剪，实现从左到右的填充效果
-                                    clip-path: inset(0 calc(100% - var(--line-gradient-progress, 0%)) 0 0);
-                                    -webkit-clip-path: inset(0 calc(100% - var(--line-gradient-progress, 0%)) 0 0);
-
-                                    // 性能优化
-                                    will-change: clip-path;
-
-                                    // GPU加速
-                                    transform: translateZ(0);
-                                    -webkit-transform: translateZ(0);
-
-                                    // 抗锯齿
-                                    -webkit-font-smoothing: antialiased;
-                                    -moz-osx-font-smoothing: grayscale;
-                                }
-                            }
-                        }
-
-                        .lyric-translation {
-                            font-size: calc(var(--lyric-inactive-font-size, 18px) * 0.85);
-                            line-height: 1.8;
-                            color: var(--lyric-inactive-text);
-                            opacity: 0.6;
-                            margin-top: 4px;
-                        }
-
-                        &.active {
-                            transform: scale(1.05);
-
-                            .lyric-line {
-                                font-size: var(--lyric-active-font-size, 32px);
-
-                                // 普通模式：整行高亮
-                                &:not(.karaoke-mode) {
-                                    font-weight: 700;
-                                    color: var(--lyric-active-text, var(--el-color-primary));
-                                    opacity: 1;
-                                    text-shadow: 0 2px 8px var(--lyric-active-shadow);
-                                }
-
-                                // 卡拉OK样式一：保持基础样式
-                                &.karaoke-style1 {
-                                    font-weight: 400;
-                                }
-
-                                // 卡拉OK样式二：保持基础样式
-                                &.karaoke-style2 {
-                                    font-weight: 400;
-                                }
-                            }
-
-                            .lyric-translation {
-                                font-size: calc(var(--lyric-active-font-size, 32px) * 0.6);
-                                color: var(--lyric-active-text, var(--el-color-primary));
-                                opacity: 0.85;
-                            }
-                        }
-                    }
-                }
+                position: relative;
 
                 .no-lyrics {
                     height: 100%;
@@ -509,39 +238,6 @@ onMounted(() => {
 
     to {
         transform: rotate(360deg);
-    }
-}
-
-// 卡拉OK弹跳动画（优化版：更平滑的曲线）
-@keyframes karaoke-bounce {
-    0% {
-        transform: scale(1) translateY(0);
-        opacity: 0.75;
-    }
-
-    20% {
-        transform: scale(1.15) translateY(-4px);
-        opacity: 0.9;
-    }
-
-    40% {
-        transform: scale(1.25) translateY(-7px);
-        opacity: 1;
-    }
-
-    60% {
-        transform: scale(1.2) translateY(-5px);
-        opacity: 1;
-    }
-
-    80% {
-        transform: scale(1.05) translateY(-1px);
-        opacity: 1;
-    }
-
-    100% {
-        transform: scale(1) translateY(0);
-        opacity: 1;
     }
 }
 </style>

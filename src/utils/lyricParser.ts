@@ -17,6 +17,17 @@ export interface LyricLine {
   ttext?: string; // 翻译文本
   duration?: number; // 行持续时间（秒）
   chars?: LyricChar[]; // 逐字信息（卡拉OK模式）
+  isEmpty?: boolean; // 是否为空行（用于节奏控制）
+  isSpecialMark?: boolean; // 是否为特殊标记（不显示但保留时间）
+}
+
+// 歌词元信息
+export interface LyricMetaInfo {
+  lyricist?: string; // 作词
+  composer?: string; // 作曲
+  arranger?: string; // 编曲
+  album?: string; // 专辑
+  [key: string]: string | undefined;
 }
 
 /**
@@ -75,7 +86,16 @@ export function getCharWeight(char: string): number {
 }
 
 /**
- * 为歌词行生成逐字时间信息（参考主流平台策略）
+ * 为歌词行生成逐字时间信息（智能版：基于时长比率的自适应分配）
+ *
+ * 策略说明：
+ * 由于没有逐字的精确时间标签，我们使用启发式算法：
+ * 1. 快节奏（比率<0.8）：均匀快速分配
+ * 2. 正常节奏（0.8-1.3）：均匀分配，最后略微拖尾
+ * 3. 慢节奏（1.3-2.5）：前面正常，后面拖长
+ * 4. 超慢节奏（>2.5）：前面快速，后面极度拖长
+ *
+ * 注意：这只是近似模拟，真实情况可能更复杂（前慢、中慢、后慢都有可能）
  */
 export function generateCharTimings(
   line: LyricLine,
@@ -91,119 +111,323 @@ export function generateCharTimings(
   const chars = splitTextToChars(line.text);
   if (chars.length === 0) return [];
 
-  // 计算每个字符的权重
-  const weights = chars.map((char) => getCharWeight(char));
-  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-
-  // 参考主流平台的策略：
-  // 1. 前面的字正常速度播放（占用60-85%时间）
-  // 2. 最后一个字延长显示（占用剩余时间）
-  // 3. 根据字数动态调整比例
   const charCount = chars.length;
-  let frontRatio = 0.75; // 默认75%给前面的字
 
-  // 字数越多，前面占比越大（避免太快）
-  if (charCount > 15) {
-    frontRatio = 0.85;
-  } else if (charCount > 10) {
-    frontRatio = 0.8;
-  } else if (charCount < 5) {
-    frontRatio = 0.65; // 字少时，给最后一个字更多时间
-  }
+  // 定义常量
+  const NORMAL_CHAR_DURATION = 0.25; // 正常语速：每个字0.25秒
+  const MIN_CHAR_DURATION = 0.15; // 最小时长：0.15秒
+  const FAST_CHAR_DURATION = 0.2; // 快速语速：0.2秒/字
 
-  const frontDuration = rawDuration * frontRatio;
+  // 计算正常语速下需要的总时长
+  const normalTotalDuration = charCount * NORMAL_CHAR_DURATION;
 
-  // 为前面的字符分配时间（除了最后一个）
+  // 计算时长比率（实际时长 / 正常时长）
+  const durationRatio = rawDuration / normalTotalDuration;
+
   let currentTime = 0;
   const result: LyricChar[] = [];
 
-  // 最小字符持续时间：0.15秒（确保动画能完整播放）
-  const MIN_CHAR_DURATION = 0.15;
+  // === 策略1：快节奏（时长比率 < 0.8） ===
+  // 所有字快速均匀分配
+  if (durationRatio < 0.8) {
+    const charDuration = Math.max(rawDuration / charCount, MIN_CHAR_DURATION);
 
-  for (let i = 0; i < chars.length; i++) {
-    const char = chars[i];
-    const weight = weights[i];
-
-    if (i === chars.length - 1) {
-      // 最后一个字：占用剩余所有时间（尾音效果）
+    for (let i = 0; i < chars.length; i++) {
       result.push({
-        text: char,
-        startTime: currentTime,
-        endTime: rawDuration, // 延长到行结束
-      });
-    } else {
-      // 前面的字：按权重分配时间
-      let charDuration = (weight / totalWeight) * frontDuration;
-
-      // 确保每个字至少有最小持续时间（动画能完整播放）
-      charDuration = Math.max(charDuration, MIN_CHAR_DURATION);
-
-      result.push({
-        text: char,
+        text: chars[i],
         startTime: currentTime,
         endTime: currentTime + charDuration,
       });
-
       currentTime += charDuration;
     }
   }
+  // === 策略2：正常节奏（0.8 <= 时长比率 <= 1.3） ===
+  // 均匀分配，略微拖尾
+  else if (durationRatio <= 1.3) {
+    // 前面的字：正常速度
+    const frontCharDuration = NORMAL_CHAR_DURATION;
+    const frontCount = charCount - 1;
 
-  // 如果前面的字占用时间超过了frontDuration，需要压缩
-  if (currentTime > frontDuration && chars.length > 1) {
-    const compressionRatio = frontDuration / currentTime;
-    let adjustedTime = 0;
-
-    for (let i = 0; i < result.length - 1; i++) {
-      const originalDuration = result[i].endTime - result[i].startTime;
-      const newDuration = originalDuration * compressionRatio;
-
-      result[i].startTime = adjustedTime;
-      result[i].endTime = adjustedTime + newDuration;
-      adjustedTime += newDuration;
+    for (let i = 0; i < frontCount; i++) {
+      result.push({
+        text: chars[i],
+        startTime: currentTime,
+        endTime: currentTime + frontCharDuration,
+      });
+      currentTime += frontCharDuration;
     }
 
-    // 调整最后一个字的开始时间
-    result[result.length - 1].startTime = adjustedTime;
+    // 最后一个字：占用剩余时间
+    result.push({
+      text: chars[charCount - 1],
+      startTime: currentTime,
+      endTime: rawDuration,
+    });
+  }
+  // === 策略3：慢节奏（1.3 < 时长比率 <= 2.5） ===
+  // 前面正常，后面拖长
+  else if (durationRatio <= 2.5) {
+    // 确定拖长的字数（最多拖长30%的字，最多3个，至少1个）
+    let extendCount = Math.min(Math.ceil(charCount * 0.3), 3);
+    extendCount = Math.max(extendCount, 1);
+
+    const normalCount = charCount - extendCount;
+
+    // 前面的字：占用50-60%的时间
+    const frontRatio = 0.55;
+    const frontDuration = rawDuration * frontRatio;
+    const frontCharDuration = Math.min(
+      frontDuration / normalCount,
+      NORMAL_CHAR_DURATION * 1.2
+    );
+
+    for (let i = 0; i < normalCount; i++) {
+      result.push({
+        text: chars[i],
+        startTime: currentTime,
+        endTime: currentTime + frontCharDuration,
+      });
+      currentTime += frontCharDuration;
+    }
+
+    // 后面的字：平均分配剩余时间
+    const remainingDuration = rawDuration - currentTime;
+    const extendCharDuration = remainingDuration / extendCount;
+
+    for (let i = normalCount; i < charCount; i++) {
+      const isLastChar = i === charCount - 1;
+      const duration = isLastChar
+        ? rawDuration - currentTime // 最后一个字精确到结束
+        : extendCharDuration;
+
+      result.push({
+        text: chars[i],
+        startTime: currentTime,
+        endTime: currentTime + duration,
+      });
+      currentTime += duration;
+    }
+  }
+  // === 策略4：超慢节奏（时长比率 > 2.5） ===
+  // 前面快速，后面极度拖长
+  else {
+    // 前面的字：快速播放，占用30-40%的时间
+    const frontRatio = Math.max(
+      0.3,
+      Math.min(0.4, normalTotalDuration / rawDuration)
+    );
+    const frontDuration = rawDuration * frontRatio;
+
+    // 确定拖长的字数（至少2个，最多一半）
+    let extendCount = Math.max(2, Math.ceil(charCount * 0.4));
+    extendCount = Math.min(extendCount, Math.ceil(charCount / 2));
+
+    const normalCount = charCount - extendCount;
+    const frontCharDuration = Math.min(
+      frontDuration / normalCount,
+      FAST_CHAR_DURATION
+    );
+
+    for (let i = 0; i < normalCount; i++) {
+      result.push({
+        text: chars[i],
+        startTime: currentTime,
+        endTime: currentTime + frontCharDuration,
+      });
+      currentTime += frontCharDuration;
+    }
+
+    // 后面的字：极度拖长
+    const remainingDuration = rawDuration - currentTime;
+    const extendCharDuration = remainingDuration / extendCount;
+
+    for (let i = normalCount; i < charCount; i++) {
+      const isLastChar = i === charCount - 1;
+      const duration = isLastChar
+        ? rawDuration - currentTime
+        : extendCharDuration;
+
+      result.push({
+        text: chars[i],
+        startTime: currentTime,
+        endTime: currentTime + duration,
+      });
+      currentTime += duration;
+    }
   }
 
   return result;
 }
 
 /**
- * 解析LRC格式歌词（支持翻译和卡拉OK模式）
+ * 解析歌词元信息（作词、作曲等）
  */
-export function parseLyric(
-  lyricText: string,
-  tlyricText?: string
-): LyricLine[] {
-  if (!lyricText) return [];
-
+export function parseMetaInfo(lyricText: string): LyricMetaInfo {
+  const metaInfo: LyricMetaInfo = {};
   const lines = lyricText.split("\n");
-  const result: LyricLine[] = [];
 
-  // 解析原文歌词
+  const metaPatterns = {
+    lyricist: /作词\s*[:：]\s*(.+)/,
+    composer: /作曲\s*[:：]\s*(.+)/,
+    arranger: /编曲\s*[:：]\s*(.+)/,
+    album: /专辑\s*[:：]\s*(.+)/,
+  };
+
   lines.forEach((line) => {
-    const match = line.match(/\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/);
+    // 检查是否为元信息行（时间戳为00:00.00）
+    const match = line.match(/\[00:00\.00\](.*)/);
     if (match) {
-      const minutes = parseInt(match[1]);
-      const seconds = parseInt(match[2]);
-      const milliseconds = parseInt(match[3]);
-      const time = minutes * 60 + seconds + milliseconds / 1000;
-      const text = match[4].trim();
-      if (text) {
-        result.push({ time, text });
+      const content = match[1].trim();
+
+      // 匹配各种元信息
+      for (const [key, pattern] of Object.entries(metaPatterns)) {
+        const metaMatch = content.match(pattern);
+        if (metaMatch) {
+          metaInfo[key] = metaMatch[1].trim();
+          break;
+        }
       }
     }
   });
 
-  // 排序
-  result.sort((a, b) => a.time - b.time);
+  return metaInfo;
+}
 
-  // 为每行生成逐字时间信息（用于卡拉OK模式）
-  result.forEach((line, index) => {
-    const nextLineTime =
-      index < result.length - 1 ? result[index + 1].time : undefined;
-    line.chars = generateCharTimings(line, nextLineTime);
+/**
+ * 过滤特殊标记（如music、end等）
+ */
+export function filterSpecialMarks(text: string): {
+  text: string;
+  isSpecialMark: boolean;
+} {
+  // 特殊标记模式（支持中英文括号）
+  const specialPatterns = [
+    /^[\(（]music[\)）]$/i,
+    /^[\(（]intro[\)）]$/i,
+    /^[\(（]outro[\)）]$/i,
+    /^[\(（]bridge[\)）]$/i,
+    /^[\(（]间奏[\)）]$/i,
+    /^end$/i,
+    /^\.\.\.$/,
+    /^…$/,
+  ];
+
+  const trimmedText = text.trim();
+
+  // 检查是否为特殊标记
+  for (const pattern of specialPatterns) {
+    if (pattern.test(trimmedText)) {
+      return { text: "", isSpecialMark: true };
+    }
+  }
+
+  return { text: trimmedText, isSpecialMark: false };
+}
+
+/**
+ * 解析多时间标签的歌词行
+ */
+export function parseMultipleTimestamps(line: string): Array<{
+  time: number;
+  text: string;
+}> {
+  const results: Array<{ time: number; text: string }> = [];
+
+  // 匹配所有时间标签
+  const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/g;
+  const times: number[] = [];
+  let match;
+
+  while ((match = timeRegex.exec(line)) !== null) {
+    const minutes = parseInt(match[1]);
+    const seconds = parseInt(match[2]);
+    const milliseconds = parseInt(match[3]);
+    const time = minutes * 60 + seconds + milliseconds / 1000;
+    times.push(time);
+  }
+
+  // 提取歌词文本
+  const text = line.replace(timeRegex, "").trim();
+
+  // 为每个时间点创建歌词行
+  times.forEach((time) => {
+    results.push({ time, text });
+  });
+
+  return results;
+}
+
+/**
+ * 解析LRC格式歌词（支持翻译和卡拉OK模式）
+ * 返回歌词列表和元信息
+ */
+export function parseLyric(
+  lyricText: string,
+  tlyricText?: string
+): {
+  lyrics: LyricLine[];
+  metaInfo: LyricMetaInfo;
+} {
+  if (!lyricText) {
+    return { lyrics: [], metaInfo: {} };
+  }
+
+  // 解析元信息
+  const metaInfo = parseMetaInfo(lyricText);
+
+  const lines = lyricText.split("\n");
+  const result: LyricLine[] = [];
+  const allTimePoints: number[] = []; // 记录所有时间点（包括特殊标记）
+
+  // 第一遍：解析所有歌词行，收集时间点
+  lines.forEach((line) => {
+    // 处理多时间标签
+    const parsedLines = parseMultipleTimestamps(line);
+
+    parsedLines.forEach(({ time, text }) => {
+      // 记录所有时间点
+      allTimePoints.push(time);
+
+      // 过滤特殊标记
+      const { text: filteredText, isSpecialMark } = filterSpecialMarks(text);
+
+      // 跳过元信息行（时间为00:00.00且没有实际歌词内容）
+      if (time === 0 && !filteredText && !isSpecialMark) {
+        return;
+      }
+
+      // 跳过特殊标记，不添加到结果中
+      if (isSpecialMark) {
+        return;
+      }
+
+      // 只添加有文本内容的歌词，跳过空行以优化间距
+      if (filteredText) {
+        result.push({
+          time,
+          text: filteredText,
+          isEmpty: false,
+          isSpecialMark: false,
+        });
+      }
+    });
+  });
+
+  // 排序结果和时间点
+  result.sort((a, b) => a.time - b.time);
+  allTimePoints.sort((a, b) => a - b);
+
+  // 为每行生成逐字时间信息（仅对有文本的行）
+  result.forEach((line) => {
+    if (line.text) {
+      // 找到下一个时间点（可能是下一句歌词，也可能是特殊标记）
+      const currentTimeIndex = allTimePoints.indexOf(line.time);
+      const nextLineTime =
+        currentTimeIndex >= 0 && currentTimeIndex < allTimePoints.length - 1
+          ? allTimePoints[currentTimeIndex + 1]
+          : undefined;
+      line.chars = generateCharTimings(line, nextLineTime);
+    }
   });
 
   // 解析翻译歌词并匹配到原文
@@ -212,17 +436,12 @@ export function parseLyric(
     const tlyricMap = new Map<number, string>();
 
     tlines.forEach((line) => {
-      const match = line.match(/\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/);
-      if (match) {
-        const minutes = parseInt(match[1]);
-        const seconds = parseInt(match[2]);
-        const milliseconds = parseInt(match[3]);
-        const time = minutes * 60 + seconds + milliseconds / 1000;
-        const text = match[4].trim();
+      const parsedLines = parseMultipleTimestamps(line);
+      parsedLines.forEach(({ time, text }) => {
         if (text) {
           tlyricMap.set(time, text);
         }
-      }
+      });
     });
 
     // 将翻译匹配到原文（基于时间戳匹配，允许小误差）
@@ -242,7 +461,7 @@ export function parseLyric(
     });
   }
 
-  return result;
+  return { lyrics: result, metaInfo };
 }
 
 /**

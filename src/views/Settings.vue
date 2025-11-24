@@ -171,6 +171,22 @@
                         <el-button @click="handleResetLyricFontSize">恢复默认</el-button>
                     </div>
                 </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-title">歌词时间偏移量</div>
+                        <div class="setting-desc">微调歌词与音频的同步时间，正值表示歌词提前，负值表示歌词延后（实时生效）</div>
+                    </div>
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <el-slider v-model="lyricOffsetInput" :min="-10" :max="10" :step="0.01" :show-tooltip="true"
+                            :format-tooltip="formatOffsetTooltip" style="width: 300px;"
+                            @input="handleLyricOffsetChange" />
+                        <el-input-number v-model="lyricOffsetInput" :min="-10" :max="10" :step="0.01" :precision="2"
+                            style="width: 120px" @change="handleLyricOffsetChange" />
+                        <span
+                            style="color: var(--el-text-color-primary); font-size: var(--custom-font-size-base);">秒</span>
+                        <el-button @click="handleResetLyricOffset" size="small">重置</el-button>
+                    </div>
+                </div>
             </div>
 
             <!-- 缓存管理 -->
@@ -343,6 +359,9 @@ const customLyricInactiveText = ref<string>('');
 // 歌词字体大小输入
 const lyricActiveSizeInput = ref<number>(settingsStore.lyricActiveFontSize);
 const lyricInactiveSizeInput = ref<number>(settingsStore.lyricInactiveFontSize);
+
+// 歌词偏移量输入（直接使用全局偏移量）
+const lyricOffsetInput = ref<number>(settingsStore.globalLyricOffset);
 
 // 初始化自定义颜色和主题预设
 const initCustomColors = () => {
@@ -925,6 +944,26 @@ const handleShowDisclaimer = () => {
             customClass: 'disclaimer-dialog'
         }
     );
+};
+
+// 格式化偏移量提示
+const formatOffsetTooltip = (value: number): string => {
+    if (value === 0) return '0 秒（无偏移）';
+    if (value > 0) return `+${value.toFixed(2)} 秒（歌词提前）`;
+    return `${value.toFixed(2)} 秒（歌词延后）`;
+};
+
+// 歌词偏移量变化（实时应用到全局）
+const handleLyricOffsetChange = (value: number | null) => {
+    if (value === null) return;
+    settingsStore.setLyricOffset(value);
+};
+
+// 重置歌词偏移量
+const handleResetLyricOffset = () => {
+    lyricOffsetInput.value = 0;
+    settingsStore.setLyricOffset(0);
+    ElMessage.success('歌词偏移量已重置');
 };
 
 // 测试 API 连接（可选）
