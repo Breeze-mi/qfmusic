@@ -1,7 +1,9 @@
 /**
  * 歌词解析工具
- * 用于解析LRC格式歌词，支持卡拉OK模式的逐字时间分配
+ * 用于解析LRC格式歌词和YRC格式逐字歌词，支持卡拉OK模式的逐字时间分配
  */
+
+import { parseYrc, isYrcFormat } from "./yrcParser";
 
 // 字符信息（卡拉OK模式）
 export interface LyricChar {
@@ -359,18 +361,57 @@ export function parseMultipleTimestamps(line: string): Array<{
 
 /**
  * 解析LRC格式歌词（支持翻译和卡拉OK模式）
+ * 支持YRC格式的逐字歌词（优先级：yrc > yrcs > lyric）
  * 返回歌词列表和元信息
+ *
+ * @param lyricText 普通LRC格式歌词
+ * @param tlyricText 翻译歌词（可选）
+ * @param yrcText YRC格式逐字歌词（可选，优先级最高）
+ * @param yrcsText YRC格式逐字歌词备用（可选）
  */
 export function parseLyric(
   lyricText: string,
-  tlyricText?: string
+  tlyricText?: string,
+  yrcText?: string,
+  yrcsText?: string
 ): {
   lyrics: LyricLine[];
   metaInfo: LyricMetaInfo;
 } {
+  // 优先使用YRC格式的逐字歌词
+  const yrcSource = yrcText || yrcsText;
+
+  if (yrcSource && isYrcFormat(yrcSource)) {
+    console.log("✓ 使用YRC格式逐字歌词");
+    const lyrics = parseYrc(yrcSource);
+
+    // 如果有翻译歌词，尝试匹配
+    if (tlyricText && lyrics.length > 0) {
+      matchTranslationLyrics(lyrics, tlyricText);
+    }
+
+    // YRC格式没有元信息，如果有普通歌词，从中提取元信息
+    const metaInfo = lyricText ? parseMetaInfo(lyricText) : {};
+
+    // 开发环境下打印调试信息
+    if (lyrics.length > 0) {
+      console.log(`解析完成: ${lyrics.length} 行歌词`);
+      console.log(
+        `第一行: "${lyrics[0].text}" (${lyrics[0].time.toFixed(3)}s, ${
+          lyrics[0].chars?.length || 0
+        } 字符)`
+      );
+    }
+
+    return { lyrics, metaInfo };
+  }
+
+  // 如果没有YRC格式，使用普通LRC格式
   if (!lyricText) {
     return { lyrics: [], metaInfo: {} };
   }
+
+  console.log("✓ 使用LRC格式歌词（模拟逐字时间）");
 
   // 解析元信息
   const metaInfo = parseMetaInfo(lyricText);
@@ -432,36 +473,45 @@ export function parseLyric(
 
   // 解析翻译歌词并匹配到原文
   if (tlyricText) {
-    const tlines = tlyricText.split("\n");
-    const tlyricMap = new Map<number, string>();
-
-    tlines.forEach((line) => {
-      const parsedLines = parseMultipleTimestamps(line);
-      parsedLines.forEach(({ time, text }) => {
-        if (text) {
-          tlyricMap.set(time, text);
-        }
-      });
-    });
-
-    // 将翻译匹配到原文（基于时间戳匹配，允许小误差）
-    result.forEach((item) => {
-      // 精确匹配
-      if (tlyricMap.has(item.time)) {
-        item.ttext = tlyricMap.get(item.time);
-      } else {
-        // 模糊匹配（±0.5秒内）
-        for (const [time, text] of tlyricMap.entries()) {
-          if (Math.abs(time - item.time) < 0.5) {
-            item.ttext = text;
-            break;
-          }
-        }
-      }
-    });
+    matchTranslationLyrics(result, tlyricText);
   }
 
   return { lyrics: result, metaInfo };
+}
+
+/**
+ * 匹配翻译歌词到原文
+ * @param lyrics 原文歌词数组
+ * @param tlyricText 翻译歌词文本
+ */
+function matchTranslationLyrics(lyrics: LyricLine[], tlyricText: string): void {
+  const tlines = tlyricText.split("\n");
+  const tlyricMap = new Map<number, string>();
+
+  tlines.forEach((line) => {
+    const parsedLines = parseMultipleTimestamps(line);
+    parsedLines.forEach(({ time, text }) => {
+      if (text) {
+        tlyricMap.set(time, text);
+      }
+    });
+  });
+
+  // 将翻译匹配到原文（基于时间戳匹配，允许小误差）
+  lyrics.forEach((item) => {
+    // 精确匹配
+    if (tlyricMap.has(item.time)) {
+      item.ttext = tlyricMap.get(item.time);
+    } else {
+      // 模糊匹配（±0.5秒内）
+      for (const [time, text] of tlyricMap.entries()) {
+        if (Math.abs(time - item.time) < 0.5) {
+          item.ttext = text;
+          break;
+        }
+      }
+    }
+  });
 }
 
 /**

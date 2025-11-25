@@ -1,14 +1,20 @@
 // Electron 文件系统适配器 - Electron 端实现
-// 使用 IPC 访问文件系统，真正的持久化存储
+// 使用引用模式：只保存文件路径，不复制文件内容
 
 import type { IStorageAdapter, TrackMetadata, StorageInfo } from "./interface";
 
 const METADATA_KEY = "electron-local-music-metadata";
 
+// 扩展元数据，添加原始文件路径
+interface ElectronTrackMetadata extends TrackMetadata {
+  originalPath?: string; // 原始文件的绝对路径
+}
+
 // 类型定义
 declare global {
   interface Window {
     electronAPI?: {
+      // 保留这些接口以兼容旧代码，但不再使用
       saveLocalMusic(
         id: string,
         buffer: ArrayBuffer
@@ -20,12 +26,16 @@ declare global {
         id: string
       ): Promise<{ success: boolean; error?: string }>;
       clearLocalMusic(): Promise<{ success: boolean; error?: string }>;
+      // 新增：读取本地文件路径
+      readLocalFile(
+        filePath: string
+      ): Promise<{ success: boolean; buffer?: ArrayBuffer; error?: string }>;
     };
   }
 }
 
 export class ElectronAdapter implements IStorageAdapter {
-  private metadata: Map<string, TrackMetadata> = new Map();
+  private metadata: Map<string, ElectronTrackMetadata> = new Map();
   private urlCache: Map<string, string> = new Map();
 
   async init(): Promise<void> {
@@ -33,7 +43,8 @@ export class ElectronAdapter implements IStorageAdapter {
     try {
       const savedMetadata = localStorage.getItem(METADATA_KEY);
       if (savedMetadata) {
-        const metadataArray: TrackMetadata[] = JSON.parse(savedMetadata);
+        const metadataArray: ElectronTrackMetadata[] =
+          JSON.parse(savedMetadata);
         metadataArray.forEach((meta) => {
           this.metadata.set(meta.id, meta);
         });
@@ -48,23 +59,26 @@ export class ElectronAdapter implements IStorageAdapter {
     blob: Blob,
     metadata: TrackMetadata
   ): Promise<void> {
-    // 保存元数据到 localStorage
-    this.metadata.set(id, metadata);
+    // 引用模式：只保存元数据和文件路径，不复制文件
+    // 从 blob 中提取原始文件路径（如果是 File 对象）
+    let originalPath = "";
+
+    if (blob instanceof File) {
+      // File 对象包含 path 属性（Electron 环境）
+      originalPath = (blob as any).path || "";
+    }
+
+    const electronMetadata: ElectronTrackMetadata = {
+      ...metadata,
+      originalPath, // 保存原始文件路径
+    };
+
+    // 只保存元数据到 localStorage
+    this.metadata.set(id, electronMetadata);
     this.saveMetadataToStorage();
 
-    // 通过 IPC 保存文件到文件系统
-    if (window.electronAPI) {
-      try {
-        const buffer = await blob.arrayBuffer();
-        const result = await window.electronAPI.saveLocalMusic(id, buffer);
-        if (!result.success) {
-          console.error(`保存文件失败 [${id}]:`, result.error);
-        }
-      } catch (error) {
-        console.error(`保存文件异常 [${id}]:`, error);
-      }
-    } else {
-      console.warn("Electron API 不可用");
+    if (import.meta.env.DEV) {
+      console.log(`📌 引用本地文件: ${originalPath}`);
     }
   }
 
@@ -78,24 +92,32 @@ export class ElectronAdapter implements IStorageAdapter {
   }
 
   async getTrack(id: string): Promise<Blob | null> {
-    if (!window.electronAPI) {
+    const metadata = this.metadata.get(id);
+    if (!metadata || !metadata.originalPath) {
+      console.warn(`元数据或文件路径不存在 [${id}]`);
+      return null;
+    }
+
+    if (!window.electronAPI?.readLocalFile) {
       console.warn("Electron API 不可用");
       return null;
     }
 
     try {
-      const result = await window.electronAPI.readLocalMusic(id);
+      // 通过 IPC 读取原始文件
+      const result = await window.electronAPI.readLocalFile(
+        metadata.originalPath
+      );
 
       if (result.success && result.buffer) {
-        const metadata = this.metadata.get(id);
-        const mimeType = metadata?.fileType || "audio/mpeg";
+        const mimeType = metadata.fileType || "audio/mpeg";
         return new Blob([result.buffer], { type: mimeType });
       } else {
-        console.warn(`读取文件失败 [${id}]:`, result.error);
+        console.warn(`读取文件失败 [${metadata.originalPath}]:`, result.error);
         return null;
       }
     } catch (error) {
-      console.error(`读取文件异常 [${id}]:`, error);
+      console.error(`读取文件异常 [${metadata.originalPath}]:`, error);
       return null;
     }
   }
@@ -108,17 +130,24 @@ export class ElectronAdapter implements IStorageAdapter {
       return this.urlCache.get(id)!;
     }
 
-    // 从文件系统读取
-    const blob = await this.getTrack(id);
-    if (!blob) {
-      console.warn(`文件系统中未找到文件 [${id}]`);
+    const metadata = this.metadata.get(id);
+    if (!metadata || !metadata.originalPath) {
+      console.warn(`元数据或文件路径不存在 [${id}]`);
       return null;
     }
 
-    // 创建 URL 并缓存
-    const url = URL.createObjectURL(blob);
-    this.urlCache.set(id, url);
-    return url;
+    // 引用模式：直接使用 file:// 协议
+    // 注意：Electron 需要配置允许访问本地文件
+    const fileUrl = `file://${metadata.originalPath.replace(/\\/g, "/")}`;
+
+    // 缓存 URL
+    this.urlCache.set(id, fileUrl);
+
+    if (import.meta.env.DEV) {
+      console.log(`🔗 使用文件引用: ${fileUrl}`);
+    }
+
+    return fileUrl;
   }
 
   async getMetadata(id: string): Promise<TrackMetadata | null> {
@@ -130,49 +159,28 @@ export class ElectronAdapter implements IStorageAdapter {
   }
 
   async deleteTrack(id: string): Promise<void> {
-    // 删除元数据
+    // 引用模式：只删除元数据，不删除原始文件
     this.metadata.delete(id);
     this.saveMetadataToStorage();
 
     // 释放 URL 缓存
-    const url = this.urlCache.get(id);
-    if (url) {
-      URL.revokeObjectURL(url);
-      this.urlCache.delete(id);
-    }
+    this.urlCache.delete(id);
 
-    // 通过 IPC 删除文件
-    if (window.electronAPI) {
-      try {
-        const result = await window.electronAPI.deleteLocalMusic(id);
-        if (!result.success) {
-          console.error(`删除文件失败 [${id}]:`, result.error);
-        }
-      } catch (error) {
-        console.error(`删除文件异常 [${id}]:`, error);
-      }
+    if (import.meta.env.DEV) {
+      console.log(`🗑️ 已移除引用 [${id}]，原始文件未删除`);
     }
   }
 
   async clearAll(): Promise<void> {
-    // 清空元数据
+    // 引用模式：只清空元数据，不删除原始文件
     this.metadata.clear();
     localStorage.removeItem(METADATA_KEY);
 
     // 释放所有 URL 缓存
-    this.urlCache.forEach((url) => URL.revokeObjectURL(url));
     this.urlCache.clear();
 
-    // 通过 IPC 清空所有文件
-    if (window.electronAPI) {
-      try {
-        const result = await window.electronAPI.clearLocalMusic();
-        if (!result.success) {
-          console.error("清空文件失败:", result.error);
-        }
-      } catch (error) {
-        console.error("清空文件异常:", error);
-      }
+    if (import.meta.env.DEV) {
+      console.log("🗑️ 已清空所有引用，原始文件未删除");
     }
   }
 
@@ -196,9 +204,8 @@ export class ElectronAdapter implements IStorageAdapter {
   }
 
   revokeTrackURL(url: string): void {
-    if (!url || !url.startsWith("blob:")) return;
-
-    URL.revokeObjectURL(url);
+    // 引用模式：file:// URL 不需要释放
+    if (!url) return;
 
     // 从缓存中移除
     for (const [id, cachedUrl] of this.urlCache.entries()) {

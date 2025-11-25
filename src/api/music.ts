@@ -20,6 +20,7 @@ export interface Song {
 
 // 歌曲详情
 export interface SongDetail {
+  id: string;
   name: string;
   ar_name: string;
   al_name: string;
@@ -29,6 +30,9 @@ export interface SongDetail {
   pic: string;
   lyric: string;
   tlyric?: string; // 翻译歌词
+  yrc?: string; // 逐字歌词（优先级最高）
+  yrc2?: string; // 逐字歌词备用
+  // lyric_api_method?: string; // 歌词API方法
 }
 
 // 歌单信息

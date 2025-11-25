@@ -194,7 +194,7 @@ function scrollToCurrentLyric(immediate = false, duration?: number) {
         } else {
             // 向下滚动（正常播放时）：使用更长的时间和 easeInOutQuad
             // 基础时长 1500ms，让滚动更慢更平滑
-            animationDuration = Math.min(1550 + absDistance * 0.7, 2000);
+            animationDuration = Math.min(1500 + absDistance * 0.7, 2000);
         }
     }
 

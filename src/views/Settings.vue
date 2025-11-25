@@ -289,7 +289,7 @@
                 <div class="setting-item">
                     <div class="setting-info">
                         <div class="setting-title">版本信息</div>
-                        <div class="setting-desc"> v1.1.5 </div>
+                        <div class="setting-desc"> v1.1.6 </div>
                     </div>
                 </div>
                 <div class="setting-item">
@@ -557,6 +557,8 @@ const handleClearLyricCache = async () => {
                     const result = await (window as any).electron?.invoke("clear-lyric-cache");
                     if (result?.success) {
                         cacheStore.clearLyricCache();
+                        // 重新加载缓存信息以更新显示
+                        await nextTick();
                         ElMessage.success("歌词缓存已清空");
                     } else {
                         throw new Error(result?.error || "清空失败");
@@ -564,6 +566,8 @@ const handleClearLyricCache = async () => {
                 } else {
                     // Web 环境
                     cacheStore.clearLyricCache();
+                    // 重新加载缓存信息以更新显示
+                    await nextTick();
                     ElMessage.success("歌词缓存已清空");
                 }
             } catch (error) {
@@ -592,6 +596,8 @@ const handleClearCoverCache = async () => {
                     const result = await (window as any).electron?.invoke("clear-cover-cache");
                     if (result?.success) {
                         cacheStore.clearCoverCache();
+                        // 重新加载缓存信息以更新显示
+                        await nextTick();
                         ElMessage.success("封面缓存已清空");
                     } else {
                         throw new Error(result?.error || "清空失败");
@@ -599,6 +605,8 @@ const handleClearCoverCache = async () => {
                 } else {
                     // Web 环境
                     cacheStore.clearCoverCache();
+                    // 重新加载缓存信息以更新显示
+                    await nextTick();
                     ElMessage.success("封面缓存已清空");
                 }
             } catch (error) {

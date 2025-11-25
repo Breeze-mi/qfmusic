@@ -3,7 +3,8 @@
         mode === 'style1' ? 'style1' : 'style2',
         animationState,
         { 'is-passed': isPassed },
-        { 'is-space': char.text === ' ' }
+        { 'is-space': char.text === ' ' },
+        { 'has-space': char.text.includes(' ') && char.text !== ' ' }
     ]">{{ char.text }}</span>
 </template>
 
@@ -94,15 +95,18 @@ function updateAnimationState() {
         return;
     }
 
+    // 添加小的缓冲区，避免浮点数精度问题
+    const BUFFER = 0.001; // 1毫秒缓冲
+
     // 未开始
-    if (relTime < startTime) {
+    if (relTime < startTime - BUFFER) {
         if (animation.value) {
             animation.value.cancel();
         }
         animationState.value = 'not-started';
     }
     // 已完成
-    else if (relTime >= endTime) {
+    else if (relTime >= endTime + BUFFER) {
         if (animation.value && animation.value.playState !== 'finished') {
             animation.value.finish();
         }
@@ -113,18 +117,18 @@ function updateAnimationState() {
         animationState.value = 'playing';
 
         if (props.mode === 'style2' && animation.value) {
-            // 如果动画未运行，启动它
+            // 时间漂移校正：计算已经过去的时间
+            const elapsed = relTime - startTime;
+            const elapsedMs = Math.max(0, elapsed * 1000);
+
+            // 如果动画未运行或暂停，启动它
             if (animation.value.playState !== 'running') {
                 animation.value.play();
+            }
 
-                // 时间漂移校正：计算已经过去的时间
-                const elapsed = relTime - startTime;
-                const elapsedMs = elapsed * 1000;
-
-                // 设置动画的当前时间以同步
-                if (elapsedMs > 0 && elapsedMs < animationDuration.value) {
-                    animation.value.currentTime = elapsedMs;
-                }
+            // 同步动画时间（关键：每次更新都同步，确保精确）
+            if (elapsedMs >= 0 && elapsedMs <= animationDuration.value) {
+                animation.value.currentTime = elapsedMs;
             }
         }
     }
@@ -252,6 +256,14 @@ onUnmounted(() => {
     &.is-space {
         white-space: pre; // 保留空格
         min-width: 0.3em; // 确保空格有最小宽度
+    }
+
+    // 包含空格的单词（如 "You ", "were "）
+    // 使用 word-spacing 增加单词间距
+    &.has-space {
+        white-space: pre; // 保留空格
+        // 为单词后的空格增加视觉间距
+        word-spacing: 0.15em;
     }
 
     // Style1: 弹跳效果

@@ -42,6 +42,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   clearLocalMusic() {
     return ipcRenderer.invoke("clear-local-music");
   },
+  // 新增：读取本地文件（引用模式）
+  readLocalFile(filePath: string) {
+    return ipcRenderer.invoke("read-local-file", filePath);
+  },
 });
 
 // 缓存管理 API

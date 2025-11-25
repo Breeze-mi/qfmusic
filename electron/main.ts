@@ -37,6 +37,8 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, "preload.mjs"),
       devTools: true, // 启用开发者工具
+      webSecurity: false, // 允许访问本地文件（引用模式需要）
+      allowRunningInsecureContent: false,
     },
   });
 
@@ -306,6 +308,20 @@ ipcMain.handle("get-cache-stats", async () => {
     };
   } catch (error: any) {
     console.error("获取缓存统计失败:", error);
+    return { success: false, error: error.message };
+  }
+});
+
+// 新增：读取本地文件（引用模式）
+ipcMain.handle("read-local-file", async (_event, filePath: string) => {
+  try {
+    if (!existsSync(filePath)) {
+      return { success: false, error: "文件不存在" };
+    }
+    const buffer = await fs.readFile(filePath);
+    return { success: true, buffer: buffer.buffer };
+  } catch (error: any) {
+    console.error("读取本地文件失败:", error);
     return { success: false, error: error.message };
   }
 });

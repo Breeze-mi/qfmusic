@@ -119,12 +119,16 @@ export const usePlayerStore = defineStore("player", () => {
     const index = playlist.value.findIndex((s) => s.id === song.id);
     if (index === -1) {
       playlist.value.push(song);
-      console.log(
-        `添加歌曲到播放列表: ${song.name}, 当前列表长度: ${playlist.value.length}`
-      );
+      if (import.meta.env.DEV) {
+        console.log(
+          `添加歌曲到播放列表: ${song.name}, 当前列表长度: ${playlist.value.length}`
+        );
+      }
       return true;
     } else {
-      console.log(`歌曲已在播放列表中: ${song.name}`);
+      if (import.meta.env.DEV) {
+        console.log(`歌曲已在播放列表中: ${song.name}`);
+      }
       return false;
     }
   };
@@ -150,21 +154,27 @@ export const usePlayerStore = defineStore("player", () => {
       if (newIndex === 0) {
         reloadTimestamp.value = Date.now();
       }
-      console.log(
-        `添加歌曲到播放列表: ${song.name}, 当前列表长度: ${playlist.value.length}, 索引: ${newIndex}`
-      );
+      if (import.meta.env.DEV) {
+        console.log(
+          `添加歌曲到播放列表: ${song.name}, 当前列表长度: ${playlist.value.length}, 索引: ${newIndex}`
+        );
+      }
     } else {
       // 歌曲已在播放列表中
       // 如果是当前正在播放的歌曲，重置播放进度（从头开始播放）
       if (index === currentIndex.value && currentSong.value?.id === song.id) {
         reloadTimestamp.value = Date.now();
-        console.log(`重新播放当前歌曲: ${song.name}`);
+        if (import.meta.env.DEV) {
+          console.log(`重新播放当前歌曲: ${song.name}`);
+        }
       } else {
         // 切换到该歌曲
         currentIndex.value = index;
         // ✅ 直接设置 currentSong，避免 computed 的多次触发
         currentSong.value = song;
-        console.log(`切换到播放列表中的歌曲: ${song.name}, 索引: ${index}`);
+        if (import.meta.env.DEV) {
+          console.log(`切换到播放列表中的歌曲: ${song.name}, 索引: ${index}`);
+        }
       }
     }
     isPlaying.value = true;
@@ -229,9 +239,11 @@ export const usePlayerStore = defineStore("player", () => {
     }
 
     switchToIndex(newIndex);
-    console.log(
-      `playPrev: 切换到索引 ${newIndex}, 歌曲: ${currentSong.value?.name}`
-    );
+    if (import.meta.env.DEV) {
+      console.log(
+        `playPrev: 切换到索引 ${newIndex}, 歌曲: ${currentSong.value?.name}`
+      );
+    }
   };
 
   // 下一首
@@ -256,9 +268,11 @@ export const usePlayerStore = defineStore("player", () => {
     }
 
     switchToIndex(newIndex);
-    console.log(
-      `playNext: 切换到索引 ${newIndex}, 歌曲: ${currentSong.value?.name}`
-    );
+    if (import.meta.env.DEV) {
+      console.log(
+        `playNext: 切换到索引 ${newIndex}, 歌曲: ${currentSong.value?.name}`
+      );
+    }
   };
 
   // 切换播放模式
@@ -318,7 +332,8 @@ export const usePlayerStore = defineStore("player", () => {
 
   // 设置当前歌曲详情
   const setCurrentSongDetail = (detail: SongDetail) => {
-    currentSongDetail.value = detail;
+    // 🔑 创建新对象引用，确保 watch 能够触发
+    currentSongDetail.value = { ...detail };
   };
 
   // 设置音量

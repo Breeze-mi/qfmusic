@@ -205,7 +205,7 @@ const handlePlaySong = (index: number) => {
 const handleRemove = (index: number) => {
     const songName = playerStore.playlist[index].name;
 
-    ElMessageBox.confirm(`确定要从播放列表中删除《${songName}》吗？`, "删除确认", {
+    ElMessageBox.confirm(`确定要从播放列表中删除  ${songName} \n吗？`, "删除确认", {
         confirmButtonText: "确定",
         cancelButtonText: "取消",
         type: "warning",

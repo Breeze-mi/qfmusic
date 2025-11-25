@@ -81,7 +81,13 @@ watch(
     () => playerStore.currentSongDetail,
     (detail) => {
         if (detail?.lyric) {
-            const parsed = parseLyric(detail.lyric, detail.tlyric);
+            // 优先使用yrc格式的逐字歌词
+            const parsed = parseLyric(
+                detail.lyric,
+                detail.tlyric,
+                detail.yrc,
+                detail.yrc2
+            );
             lyrics.value = parsed.lyrics;
             metaInfo.value = parsed.metaInfo;
         } else {
@@ -135,23 +141,24 @@ watch(
         flex: 1;
         display: flex;
         overflow: hidden;
-        padding: 40px;
+        padding: 20px 40px; // 减少上下 padding 从 40px 到 20px
         gap: 60px;
-        padding-bottom: 90px;
+        padding-bottom: 100px; // 底部保持足够空间给播放器
 
         .left-section {
             flex: 0 0 45%;
             display: flex;
             flex-direction: column;
-            align-items: center;
+            align-items: flex-start; // 改为左对齐
             justify-content: center;
+            padding-left: 60px; // 整体左移
 
             .album-cover-wrapper {
-                margin-bottom: 40px;
+                margin-bottom: 30px;
 
                 .album-cover {
-                    width: 400px; //旋转图片大小
-                    height: 400px; //旋转图片大小
+                    width: 380px; // 稍微增大（从350px增加到380px）
+                    height: 380px;
                     border-radius: 50%;
                     background-size: cover;
                     background-position: center;
@@ -164,13 +171,13 @@ watch(
                 }
 
                 .album-cover-placeholder {
-                    width: 400px;
-                    height: 400px;
+                    width: 380px; // 稍微增大（从300px增加到380px）
+                    height: 380px;
                     border-radius: 50%;
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    font-size: 120px;
+                    font-size: 120px; // 稍微增大（从100px增加到120px）
                     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
 
@@ -183,13 +190,13 @@ watch(
             .song-info {
                 text-align: left;
                 width: 100%;
-                max-width: 400px; //旋转图片大小
+                max-width: 380px; // 匹配封面宽度
 
                 .song-name {
-                    font-size: 30px;
+                    font-size: 26px;
                     font-weight: 600;
                     color: var(--el-text-color-primary);
-                    margin: 0 0 12px 0;
+                    margin: 0 0 10px 0;
                     overflow: hidden;
                     text-overflow: ellipsis;
                     white-space: nowrap;
@@ -197,9 +204,9 @@ watch(
 
                 .song-artist,
                 .song-album {
-                    font-size: 16px;
+                    font-size: 15px;
                     color: var(--el-text-color-secondary);
-                    margin: 4px 0;
+                    margin: 3px 0;
                     line-height: 1.5;
                 }
             }
@@ -240,4 +247,71 @@ watch(
         transform: rotate(360deg);
     }
 }
-</style>
+
+// 响应式设计：小屏幕时进一步缩小封面
+// @media (max-width: 1400px) {
+//     .song-detail-page .detail-content {
+//         .left-section {
+//             .album-cover-wrapper {
+
+//                 .album-cover,
+//                 .album-cover-placeholder {
+//                     width: 300px;
+//                     height: 300px;
+//                 }
+
+//                 .album-cover-placeholder {
+//                     font-size: 80px;
+//                 }
+//             }
+
+//             .song-info {
+//                 max-width: 300px;
+
+//                 .song-name {
+//                     font-size: 22px;
+//                 }
+
+//                 .song-artist,
+//                 .song-album {
+//                     font-size: 14px;
+//                 }
+//             }
+//         }
+//     }
+// }
+
+// @media (max-width: 1200px) {
+//     .song-detail-page .detail-content {
+//         gap: 40px;
+
+//         .left-section {
+//             .album-cover-wrapper {
+//                 margin-bottom: 20px;
+
+//                 .album-cover,
+//                 .album-cover-placeholder {
+//                     width: 220px;
+//                     height: 220px;
+//                 }
+
+//                 .album-cover-placeholder {
+//                     font-size: 70px;
+//                 }
+//             }
+
+//             .song-info {
+//                 max-width: 220px;
+
+//                 .song-name {
+//                     font-size: 20px;
+//                 }
+
+//                 .song-artist,
+//                 .song-album {
+//                     font-size: 13px;
+//                 }
+//             }
+//         }
+//     }
+// }</style>
