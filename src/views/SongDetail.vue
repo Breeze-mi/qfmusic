@@ -2,7 +2,9 @@
     <div class="song-detail-page">
         <!-- 顶部栏 -->
         <div class="top-bar">
-            <h2 class="page-title">{{ playerStore.currentSong?.name || '播放详情' }}</h2>
+            <h2 class="page-title clickable" @click="navigateToHome" title="返回主页">
+                {{ playerStore.currentSong?.name || '播放详情' }}
+            </h2>
             <div class="spacer"></div>
             <el-button circle :icon="Setting" @click="navigateToSettings" title="设置" />
             <el-button circle :icon="themeStore.isDark ? Sunny : Moon" @click="themeStore.toggleTheme" title="切换主题" />
@@ -67,6 +69,10 @@ const navigateToSettings = () => {
     router.push("/settings");
 };
 
+const navigateToHome = () => {
+    router.push("/");
+};
+
 const lyrics = ref<LyricLine[]>([]);
 const metaInfo = ref<LyricMetaInfo>({});
 
@@ -123,6 +129,20 @@ watch(
             text-overflow: ellipsis;
             white-space: nowrap;
             margin: 0;
+
+            &.clickable {
+                cursor: pointer;
+                transition: color 0.3s ease, transform 0.2s ease;
+
+                &:hover {
+                    color: var(--el-color-primary);
+                    transform: translateX(-2px);
+                }
+
+                &:active {
+                    transform: translateX(-2px) scale(0.98);
+                }
+            }
         }
 
         .spacer {

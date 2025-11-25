@@ -11,7 +11,7 @@
             <template v-if="karaokeMode !== 'off' && line.chars && line.chars.length > 0">
                 <LyricChar v-for="(char, index) in line.chars" :key="`${line.time}-${index}`" :char="char"
                     :line-time="line.time" :current-time="currentTime" :is-active="isActive" :is-passed="isPassed"
-                    :mode="karaokeMode" />
+                    :mode="karaokeMode" :bounce-group="bounceGroups[index]" />
             </template>
 
             <!-- 普通模式：整行显示 -->
@@ -30,6 +30,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { LyricLine as LyricLineType } from '@/utils/lyricParser';
+import { calculateBounceGroups } from '@/utils/lyricParser';
 import { useSettingsStore } from '@/stores/settings';
 import LyricChar from './LyricChar.vue';
 
@@ -48,6 +49,14 @@ const settingsStore = useSettingsStore();
 // 是否显示翻译（根据设置和是否有翻译内容）
 const shouldShowTranslation = computed(() => {
     return settingsStore.showLyricTranslation && props.line.ttext;
+});
+
+// 计算弹跳分组（仅在卡拉OK模式下）
+const bounceGroups = computed(() => {
+    if (props.karaokeMode === 'off' || !props.line.chars || props.line.chars.length === 0) {
+        return [];
+    }
+    return calculateBounceGroups(props.line.chars);
 });
 </script>
 

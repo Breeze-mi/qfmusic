@@ -68,19 +68,157 @@ export function splitTextToChars(text: string): string[] {
 }
 
 /**
+ * 计算字符的弹跳分组
+ * 智能分组算法：根据字符持续时间自适应分组，适配各种节奏的歌曲
+ *
+ * 核心策略：
+ * 1. 确保每组的总时长足够完成一次完整的弹跳动画（≥200ms）
+ * 2. 拖长音（>350ms）单独成组，突出重点
+ * 3. 快速连续的字符合并成组，避免视觉跟不上
+ * 4. 自适应调整：根据整行的平均节奏动态调整分组策略
+ *
+ * @param chars 字符数组
+ * @returns 分组信息数组，每个元素包含该字符所属的组ID和组内字符数
+ */
+export function calculateBounceGroups(
+  chars: LyricChar[]
+): Array<{ groupId: number; groupSize: number }> {
+  if (!chars || chars.length === 0) {
+    return [];
+  }
+
+  // 过滤掉空格，计算有效字符的平均时长
+  const validChars = chars.filter((c) => c.text.trim() !== "");
+  if (validChars.length === 0) {
+    return chars.map(() => ({ groupId: 0, groupSize: 1 }));
+  }
+
+  const totalDuration = validChars.reduce(
+    (sum, c) => sum + (c.endTime - c.startTime) * 1000,
+    0
+  );
+  const avgCharDuration = totalDuration / validChars.length;
+
+  // 🔑 根据平均时长动态调整分组参数
+  let MIN_GROUP_DURATION: number; // 每组最小总时长
+  let LONG_CHAR_THRESHOLD: number; // 拖长音阈值
+  let MAX_GROUP_SIZE: number; // 最大组大小
+
+  if (avgCharDuration < 150) {
+    // 超快节奏（Rap、快歌）：平均<150ms/字
+    MIN_GROUP_DURATION = 200; // 组总时长至少200ms
+    LONG_CHAR_THRESHOLD = 300; // >300ms算拖长音
+    MAX_GROUP_SIZE = 6; // 最多6字一组
+  } else if (avgCharDuration < 250) {
+    // 快节奏：平均150-250ms/字
+    MIN_GROUP_DURATION = 250; // 组总时长至少250ms
+    LONG_CHAR_THRESHOLD = 350; // >350ms算拖长音
+    MAX_GROUP_SIZE = 4; // 最多4字一组
+  } else if (avgCharDuration < 400) {
+    // 正常节奏：平均250-400ms/字
+    MIN_GROUP_DURATION = 300; // 组总时长至少300ms
+    LONG_CHAR_THRESHOLD = 450; // >450ms算拖长音
+    MAX_GROUP_SIZE = 3; // 最多3字一组
+  } else {
+    // 慢节奏：平均>400ms/字
+    MIN_GROUP_DURATION = 350; // 组总时长至少350ms
+    LONG_CHAR_THRESHOLD = 600; // >600ms算拖长音
+    MAX_GROUP_SIZE = 2; // 最多2字一组
+  }
+
+  const groups: Array<{ groupId: number; groupSize: number }> = [];
+  let currentGroupId = 0;
+  let currentGroupStartIndex = 0;
+  let currentGroupDuration = 0;
+  let currentGroupCharCount = 0; // 当前组的有效字符数（不含空格）
+
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i];
+    const charDuration = (char.endTime - char.startTime) * 1000;
+
+    // 空格：跟随当前组，不影响分组逻辑
+    if (char.text.trim() === "") {
+      currentGroupDuration += charDuration;
+      continue;
+    }
+
+    // 累加当前组的持续时间和字符数
+    currentGroupDuration += charDuration;
+    currentGroupCharCount++;
+
+    // 🔑 判断是否需要结束当前组
+    const shouldEndGroup =
+      // 条件1：当前字符是拖长音，且不是组内第一个字 → 前面的字结束成组，拖长音单独成组
+      (charDuration >= LONG_CHAR_THRESHOLD && currentGroupCharCount > 1) ||
+      // 条件2：当前组已达到最小时长，且达到最大组大小 → 结束当前组
+      (currentGroupDuration >= MIN_GROUP_DURATION &&
+        currentGroupCharCount >= MAX_GROUP_SIZE) ||
+      // 条件3：当前组已达到最小时长，且下一个字符是拖长音 → 提前结束当前组
+      (currentGroupDuration >= MIN_GROUP_DURATION &&
+        i < chars.length - 1 &&
+        chars[i + 1].text.trim() !== "" &&
+        (chars[i + 1].endTime - chars[i + 1].startTime) * 1000 >=
+          LONG_CHAR_THRESHOLD);
+
+    // 如果当前字符是拖长音且是组内第一个字，单独成组
+    if (charDuration >= LONG_CHAR_THRESHOLD && currentGroupCharCount === 1) {
+      // 拖长音单独成组
+      const groupSize = i - currentGroupStartIndex + 1;
+      for (let j = currentGroupStartIndex; j <= i; j++) {
+        groups.push({ groupId: currentGroupId, groupSize });
+      }
+      currentGroupId++;
+      currentGroupStartIndex = i + 1;
+      currentGroupDuration = 0;
+      currentGroupCharCount = 0;
+    } else if (shouldEndGroup) {
+      // 结束当前组（不包含当前字符）
+      const groupSize = i - currentGroupStartIndex;
+      for (let j = currentGroupStartIndex; j < i; j++) {
+        groups.push({ groupId: currentGroupId, groupSize });
+      }
+      currentGroupId++;
+      currentGroupStartIndex = i;
+      currentGroupDuration = charDuration;
+      currentGroupCharCount = 1;
+    }
+  }
+
+  // 处理最后一组
+  if (currentGroupStartIndex < chars.length) {
+    const groupSize = chars.length - currentGroupStartIndex;
+    for (let j = currentGroupStartIndex; j < chars.length; j++) {
+      groups.push({ groupId: currentGroupId, groupSize });
+    }
+  }
+
+  return groups;
+}
+
+/**
  * 计算字符的权重（用于智能时间分配）
+ * 参考洛雪音乐的实现，更精细地区分不同字符类型
  */
 export function getCharWeight(char: string): number {
-  // 空格：几乎不占时间
-  if (char === " ") return 0.1;
+  // 空格：几乎不占时间（但保留一点，避免视觉上太紧凑）
+  if (char === " ") return 0.05;
 
   // 标点符号：占用较少时间
-  if (/[，。！？、；：""''（）《》【】…—·]/.test(char)) return 0.3;
-  if (/[,\.!?;:'"()\[\]\-]/.test(char)) return 0.3;
+  // 中文标点
+  if (/[，。！？、；：""''（）《》【】…—·]/.test(char)) return 0.2;
+  // 英文标点
+  if (/[,\.!?;:'"()\[\]\-]/.test(char)) return 0.2;
+
+  // 数字：较短时间
+  if (/[0-9]/.test(char)) return 0.6;
 
   // 英文单词：根据长度分配权重
   if (/[a-zA-Z]/.test(char)) {
-    return Math.min(char.length * 0.8, 3); // 单词越长权重越大，但有上限
+    // 单词越长，权重越大，但有上限
+    // 短单词（1-2字母）：0.8
+    // 中等单词（3-5字母）：1.5-2.5
+    // 长单词（6+字母）：最多3.0
+    return Math.min(char.length * 0.5 + 0.3, 3.0);
   }
 
   // 中文字符：标准权重
@@ -88,16 +226,55 @@ export function getCharWeight(char: string): number {
 }
 
 /**
- * 为歌词行生成逐字时间信息（智能版：基于时长比率的自适应分配）
+ * 检测字符是否可能是拖长音位置
+ * 基于中文歌曲演唱习惯的启发式规则
+ */
+function isLikelyExtendedChar(
+  char: string,
+  index: number,
+  chars: string[],
+  isLastChar: boolean
+): boolean {
+  // 1. 最后一个字（最常见的拖长位置）
+  if (isLastChar) return true;
+
+  // 2. 语气词（通常会拖长）- 仅在句尾或接近句尾时
+  const vocalChars = new Set(["啊", "呀", "哦", "嗯", "唉", "哎"]);
+  if (vocalChars.has(char) && index >= chars.length - 3) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * 检测是否为段落结束（长间奏前）
+ * 通过分析下一行的时间间隔判断
+ */
+function isLongPause(currentLineTime: number, nextLineTime: number): boolean {
+  const gap = nextLineTime - currentLineTime;
+  // 如果间隔超过5秒，认为是长间奏
+  return gap > 5;
+}
+
+/**
+ * 为歌词行生成逐字时间信息（优化版：基于字符权重的智能分配）
  *
  * 策略说明：
- * 由于没有逐字的精确时间标签，我们使用启发式算法：
- * 1. 快节奏（比率<0.8）：均匀快速分配
- * 2. 正常节奏（0.8-1.3）：均匀分配，最后略微拖尾
- * 3. 慢节奏（1.3-2.5）：前面正常，后面拖长
- * 4. 超慢节奏（>2.5）：前面快速，后面极度拖长
+ * 参考洛雪音乐的实现思路，使用更智能的算法：
+ * 1. 基于字符权重分配时间（中文字、英文单词、标点符号权重不同）
+ * 2. 根据节奏自适应调整（快/正常/慢/超慢）
+ * 3. 模拟真实演唱习惯（前快后慢、重音拖长等）
+ * 4. 考虑标点符号的停顿效果
+ * 5. 智能识别拖长音位置（句尾、情感重音等）
+ * 6. 处理极端情况（长间奏、超长停顿等）
  *
- * 注意：这只是近似模拟，真实情况可能更复杂（前慢、中慢、后慢都有可能）
+ * 改进点：
+ * - 更精细的字符权重计算
+ * - 更自然的时间分布曲线
+ * - 更好的节奏适应性
+ * - 智能识别拖长音位置
+ * - 处理段落间的长停顿
  */
 export function generateCharTimings(
   line: LyricLine,
@@ -115,146 +292,245 @@ export function generateCharTimings(
 
   const charCount = chars.length;
 
+  // 检测是否为长间奏前的最后一句
+  const hasLongPause = nextLineTime
+    ? isLongPause(line.time + rawDuration, nextLineTime)
+    : false;
+
   // 定义常量
   const NORMAL_CHAR_DURATION = 0.25; // 正常语速：每个字0.25秒
-  const MIN_CHAR_DURATION = 0.15; // 最小时长：0.15秒
-  const FAST_CHAR_DURATION = 0.2; // 快速语速：0.2秒/字
+  const MIN_CHAR_DURATION = 0.12; // 最小时长：0.12秒（更快）
+  const MAX_CHAR_DURATION = 2.0; // 最大时长：2秒（避免单字过长）
 
-  // 计算正常语速下需要的总时长
-  const normalTotalDuration = charCount * NORMAL_CHAR_DURATION;
+  // === 步骤1：计算每个字符的权重 ===
+  const weights = chars.map((char) => getCharWeight(char));
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
 
-  // 计算时长比率（实际时长 / 正常时长）
+  // 如果总权重为0（全是空格/标点），使用均匀分配
+  if (totalWeight === 0) {
+    const charDuration = rawDuration / charCount;
+    let currentTime = 0;
+    return chars.map((char) => {
+      const result = {
+        text: char,
+        startTime: currentTime,
+        endTime: currentTime + charDuration,
+      };
+      currentTime += charDuration;
+      return result;
+    });
+  }
+
+  // === 步骤2：识别拖长音位置 ===
+  const extendedPositions = chars.map((char, i) =>
+    isLikelyExtendedChar(char, i, chars, i === charCount - 1)
+  );
+
+  // === 步骤3：计算节奏类型和调整系数 ===
+  const normalTotalDuration = totalWeight * NORMAL_CHAR_DURATION;
   const durationRatio = rawDuration / normalTotalDuration;
 
+  // 根据时长比率确定节奏类型和分配策略
+  let timeDistribution: number[]; // 时间分布权重
+
+  if (durationRatio < 0.7) {
+    // 快节奏：几乎均匀，最后略微拖长
+    timeDistribution = weights.map((_, i) => {
+      const isLastChar = i === charCount - 1;
+      return isLastChar ? 1.15 : 1.0; // 减少拖长幅度
+    });
+  } else if (durationRatio <= 1.3) {
+    // 正常节奏：轻微前快后慢
+    timeDistribution = weights.map((_, i) => {
+      const progress = i / (charCount - 1 || 1);
+      let base = 1.0 + progress * 0.15; // 减少变化幅度：1.0 -> 1.15
+
+      // 拖长音位置轻微加权
+      if (extendedPositions[i]) {
+        base *= 1.2; // 减少加权幅度
+      }
+
+      return base;
+    });
+  } else if (durationRatio <= 2.0) {
+    // 慢节奏：前快后慢
+    timeDistribution = weights.map((_, i) => {
+      const progress = i / (charCount - 1 || 1);
+      // 使用较平缓的曲线：1.0 -> 1.8
+      let base = 1.0 + Math.pow(progress, 1.3) * 0.8;
+
+      // 拖长音位置适度加权
+      if (extendedPositions[i]) {
+        base *= 1.3; // 减少加权幅度
+      }
+
+      return base;
+    });
+  } else {
+    // 超慢节奏：前面快速，后面拖长
+    timeDistribution = weights.map((_, i) => {
+      const progress = i / (charCount - 1 || 1);
+      let base: number;
+
+      // 使用较平缓的指数曲线
+      if (progress < 0.5) {
+        base = 0.85; // 前50%稍快
+      } else {
+        const backProgress = (progress - 0.5) * 2;
+        base = 1.0 + Math.pow(backProgress, 1.8) * 1.5; // 减少拖长幅度
+      }
+
+      // 拖长音位置加权
+      if (extendedPositions[i]) {
+        base *= 1.5; // 减少加权幅度
+      }
+
+      // 如果是长间奏前的最后一句，最后一个字适度拖长
+      if (hasLongPause && i === charCount - 1) {
+        base *= 1.3; // 减少加权幅度
+      }
+
+      return base;
+    });
+  }
+
+  // === 步骤4：计算调整后的权重 ===
+  const adjustedWeights = weights.map((w, i) => w * timeDistribution[i]);
+  const totalAdjustedWeight = adjustedWeights.reduce((sum, w) => sum + w, 0);
+
+  // === 步骤5：分配时间 ===
   let currentTime = 0;
   const result: LyricChar[] = [];
 
-  // === 策略1：快节奏（时长比率 < 0.8） ===
-  // 所有字快速均匀分配
-  if (durationRatio < 0.8) {
-    const charDuration = Math.max(rawDuration / charCount, MIN_CHAR_DURATION);
+  for (let i = 0; i < chars.length; i++) {
+    // 计算该字符应占用的时间
+    const ratio = adjustedWeights[i] / totalAdjustedWeight;
+    let charDuration = rawDuration * ratio;
 
-    for (let i = 0; i < chars.length; i++) {
-      result.push({
-        text: chars[i],
-        startTime: currentTime,
-        endTime: currentTime + charDuration,
-      });
-      currentTime += charDuration;
-    }
-  }
-  // === 策略2：正常节奏（0.8 <= 时长比率 <= 1.3） ===
-  // 均匀分配，略微拖尾
-  else if (durationRatio <= 1.3) {
-    // 前面的字：正常速度
-    const frontCharDuration = NORMAL_CHAR_DURATION;
-    const frontCount = charCount - 1;
+    // 限制单个字符的时长范围
+    charDuration = Math.max(
+      MIN_CHAR_DURATION,
+      Math.min(charDuration, MAX_CHAR_DURATION)
+    );
 
-    for (let i = 0; i < frontCount; i++) {
-      result.push({
-        text: chars[i],
-        startTime: currentTime,
-        endTime: currentTime + frontCharDuration,
-      });
-      currentTime += frontCharDuration;
-    }
+    // 最后一个字符：精确到行结束时间（避免累积误差）
+    const isLastChar = i === chars.length - 1;
+    const endTime = isLastChar ? rawDuration : currentTime + charDuration;
 
-    // 最后一个字：占用剩余时间
     result.push({
-      text: chars[charCount - 1],
+      text: chars[i],
       startTime: currentTime,
-      endTime: rawDuration,
+      endTime: endTime,
     });
+
+    currentTime = endTime;
   }
-  // === 策略3：慢节奏（1.3 < 时长比率 <= 2.5） ===
-  // 前面正常，后面拖长
-  else if (durationRatio <= 2.5) {
-    // 确定拖长的字数（最多拖长30%的字，最多3个，至少1个）
-    let extendCount = Math.min(Math.ceil(charCount * 0.3), 3);
-    extendCount = Math.max(extendCount, 1);
 
-    const normalCount = charCount - extendCount;
+  // === 步骤6：微调优化 ===
+  // 优化1：确保拖长音位置有足够的时长
+  for (let i = 0; i < result.length; i++) {
+    if (extendedPositions[i]) {
+      const char = result[i];
+      const charDuration = char.endTime - char.startTime;
+      const minExtendedDuration = MIN_CHAR_DURATION * 2; // 拖长音至少是普通字的2倍
 
-    // 前面的字：占用50-60%的时间
-    const frontRatio = 0.55;
-    const frontDuration = rawDuration * frontRatio;
-    const frontCharDuration = Math.min(
-      frontDuration / normalCount,
-      NORMAL_CHAR_DURATION * 1.2
-    );
+      if (charDuration < minExtendedDuration && i < result.length - 1) {
+        // 需要延长，从后面的非拖长音字符借时间
+        const needTime = minExtendedDuration - charDuration;
+        let borrowedTime = 0;
 
-    for (let i = 0; i < normalCount; i++) {
-      result.push({
-        text: chars[i],
-        startTime: currentTime,
-        endTime: currentTime + frontCharDuration,
-      });
-      currentTime += frontCharDuration;
-    }
+        for (let j = i + 1; j < result.length && borrowedTime < needTime; j++) {
+          if (!extendedPositions[j]) {
+            const nextChar = result[j];
+            const nextDuration = nextChar.endTime - nextChar.startTime;
 
-    // 后面的字：平均分配剩余时间
-    const remainingDuration = rawDuration - currentTime;
-    const extendCharDuration = remainingDuration / extendCount;
+            if (nextDuration > MIN_CHAR_DURATION * 1.5) {
+              const canBorrow = Math.min(
+                nextDuration - MIN_CHAR_DURATION,
+                needTime - borrowedTime
+              );
+              borrowedTime += canBorrow;
+            }
+          }
+        }
 
-    for (let i = normalCount; i < charCount; i++) {
-      const isLastChar = i === charCount - 1;
-      const duration = isLastChar
-        ? rawDuration - currentTime // 最后一个字精确到结束
-        : extendCharDuration;
-
-      result.push({
-        text: chars[i],
-        startTime: currentTime,
-        endTime: currentTime + duration,
-      });
-      currentTime += duration;
+        if (borrowedTime > 0) {
+          char.endTime += borrowedTime;
+          // 更新后续字符的时间
+          for (let j = i + 1; j < result.length; j++) {
+            result[j].startTime += borrowedTime;
+            if (j < result.length - 1) {
+              result[j].endTime += borrowedTime;
+            }
+          }
+        }
+      }
     }
   }
-  // === 策略4：超慢节奏（时长比率 > 2.5） ===
-  // 前面快速，后面极度拖长
-  else {
-    // 前面的字：快速播放，占用30-40%的时间
-    const frontRatio = Math.max(
-      0.3,
-      Math.min(0.4, normalTotalDuration / rawDuration)
-    );
-    const frontDuration = rawDuration * frontRatio;
 
-    // 确定拖长的字数（至少2个，最多一半）
-    let extendCount = Math.max(2, Math.ceil(charCount * 0.4));
-    extendCount = Math.min(extendCount, Math.ceil(charCount / 2));
+  // 优化2：如果最后一个字符时间过短，从前面的字符借一些时间
+  if (result.length > 1) {
+    const lastChar = result[result.length - 1];
+    const lastDuration = lastChar.endTime - lastChar.startTime;
+    const minLastDuration = extendedPositions[result.length - 1]
+      ? MIN_CHAR_DURATION * 2.5 // 如果是拖长音，要求更长
+      : MIN_CHAR_DURATION * 1.5;
 
-    const normalCount = charCount - extendCount;
-    const frontCharDuration = Math.min(
-      frontDuration / normalCount,
-      FAST_CHAR_DURATION
-    );
+    if (lastDuration < minLastDuration) {
+      // 最后一个字太短，尝试延长
+      const needTime = minLastDuration - lastDuration;
+      let borrowedTime = 0;
 
-    for (let i = 0; i < normalCount; i++) {
-      result.push({
-        text: chars[i],
-        startTime: currentTime,
-        endTime: currentTime + frontCharDuration,
-      });
-      currentTime += frontCharDuration;
+      // 从倒数第二个字符开始，向前借时间
+      for (let i = result.length - 2; i >= 0 && borrowedTime < needTime; i--) {
+        const char = result[i];
+        const charDuration = char.endTime - char.startTime;
+        const minDuration = extendedPositions[i]
+          ? MIN_CHAR_DURATION * 2
+          : MIN_CHAR_DURATION * 1.5;
+
+        if (charDuration > minDuration) {
+          // 这个字符有余量，可以借一些时间
+          const canBorrow = Math.min(
+            charDuration - minDuration,
+            needTime - borrowedTime
+          );
+          char.endTime -= canBorrow;
+          borrowedTime += canBorrow;
+
+          // 更新后续字符的时间
+          for (let j = i + 1; j < result.length; j++) {
+            result[j].startTime -= borrowedTime;
+            result[j].endTime -= borrowedTime;
+          }
+        }
+      }
     }
+  }
 
-    // 后面的字：极度拖长
-    const remainingDuration = rawDuration - currentTime;
-    const extendCharDuration = remainingDuration / extendCount;
+  // 优化3：处理标点符号后的停顿
+  for (let i = 0; i < result.length - 1; i++) {
+    const char = result[i];
 
-    for (let i = normalCount; i < charCount; i++) {
-      const isLastChar = i === charCount - 1;
-      const duration = isLastChar
-        ? rawDuration - currentTime
-        : extendCharDuration;
+    // 如果当前字符是标点符号，且后面有字符
+    if (
+      /[，。！？、；：""''（）《》【】…—·,\.!?;:'"()\[\]\-]/.test(char.text)
+    ) {
+      const punctDuration = char.endTime - char.startTime;
 
-      result.push({
-        text: chars[i],
-        startTime: currentTime,
-        endTime: currentTime + duration,
-      });
-      currentTime += duration;
+      // 标点符号时间过长，压缩一下，给后面的字更多时间
+      if (punctDuration > MIN_CHAR_DURATION * 0.5) {
+        const reduceTime = punctDuration - MIN_CHAR_DURATION * 0.3;
+        char.endTime -= reduceTime;
+
+        // 将节省的时间分配给后面的字符
+        for (let j = i + 1; j < result.length; j++) {
+          result[j].startTime -= reduceTime;
+          if (j < result.length - 1) {
+            result[j].endTime -= reduceTime;
+          }
+        }
+      }
     }
   }
 
@@ -297,32 +573,44 @@ export function parseMetaInfo(lyricText: string): LyricMetaInfo {
 
 /**
  * 过滤特殊标记（如music、end等）
+ * 注意：只过滤纯音乐标记，保留有意义的内容（如歌手标注、元信息等）
  */
 export function filterSpecialMarks(text: string): {
   text: string;
   isSpecialMark: boolean;
 } {
-  // 特殊标记模式（支持中英文括号）
-  const specialPatterns = [
-    /^[\(（]music[\)）]$/i,
-    /^[\(（]intro[\)）]$/i,
-    /^[\(（]outro[\)）]$/i,
-    /^[\(（]bridge[\)）]$/i,
-    /^[\(（]间奏[\)）]$/i,
-    /^end$/i,
-    /^\.\.\.$/,
-    /^…$/,
-  ];
-
   const trimmedText = text.trim();
 
-  // 检查是否为特殊标记
+  // 空行直接返回
+  if (!trimmedText) {
+    return { text: "", isSpecialMark: false };
+  }
+
+  // 特殊标记模式（只匹配纯音乐标记，不包含其他内容）
+  const specialPatterns = [
+    /^[\(（]?music[\)）]?$/i, // Music、(Music)、（Music）
+    /^[\(（]?intro[\)）]?$/i, // Intro、(Intro)、（Intro）
+    /^[\(（]?outro[\)）]?$/i, // Outro、(Outro)、（Outro）
+    /^[\(（]?bridge[\)）]?$/i, // Bridge、(Bridge)、（Bridge）
+    /^[\(（]?间奏[\)）]?$/i, // 间奏、(间奏)、（间奏）
+    /^[\(（]?前奏[\)）]?$/i, // 前奏、(前奏)、（前奏）
+    /^[\(（]?尾奏[\)）]?$/i, // 尾奏、(尾奏)、（尾奏）
+    /^[\(（]?solo[\)）]?$/i, // Solo、(Solo)、（Solo）
+    /^[\(（]?instrumental[\)）]?$/i, // Instrumental
+    /^[\(（]?伴奏[\)）]?$/i, // 伴奏
+    /^end$/i, // End
+    /^\.\.\.$/, // ...
+    /^…$/, // …
+  ];
+
+  // 检查是否为纯音乐标记（完全匹配）
   for (const pattern of specialPatterns) {
     if (pattern.test(trimmedText)) {
       return { text: "", isSpecialMark: true };
     }
   }
 
+  // 不是特殊标记，保留原文本
   return { text: trimmedText, isSpecialMark: false };
 }
 

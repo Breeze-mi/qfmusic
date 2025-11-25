@@ -259,14 +259,14 @@
                 </div>
             </div>
 
-            <!-- 网络设置：开发环境或 Electron 环境显示 -->
-            <div class="settings-section" v-if="settingsStore.isDevelopment() || settingsStore.isElectron()">
+            <!-- 网络设置 -->
+            <div class="settings-section">
                 <h2>网络</h2>
                 <div class="setting-item">
                     <div class="setting-info">
                         <div class="setting-title">API服务器地址</div>
                         <div class="setting-desc">
-                            自定义后端API地址，留空使用默认地址。保存后立即生效，无需重启。
+                            自定义后端API地址，留空使用默认地址。
                             <div v-if="currentApiUrl" style="margin-top: 4px;">
                                 <el-text size="small" type="info">当前使用：{{ currentApiUrl }}</el-text>
                             </div>
@@ -289,7 +289,7 @@
                 <div class="setting-item">
                     <div class="setting-info">
                         <div class="setting-title">版本信息</div>
-                        <div class="setting-desc"> v1.1.6 </div>
+                        <div class="setting-desc"> v1.1.8 </div>
                     </div>
                 </div>
                 <div class="setting-item">

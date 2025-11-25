@@ -486,6 +486,19 @@ const isShiftPressed = ref(false);
 const draggedIndex = ref<number | null>(null);
 const dragOverIndex = ref<number | null>(null);
 
+// 自动滚动相关
+let autoScrollTimer: number | null = null;
+const SCROLL_SPEED = 10; // 滚动速度（像素/帧）
+const SCROLL_ZONE = 80; // 触发滚动的边缘区域大小（像素）
+
+// 停止自动滚动
+const stopAutoScroll = () => {
+    if (autoScrollTimer !== null) {
+        clearInterval(autoScrollTimer);
+        autoScrollTimer = null;
+    }
+};
+
 // 是否支持排序（只有自定义歌单和我喜欢支持）
 const canReorder = computed(() => !isHistoryPlaylist.value && !isLocalPlaylist.value);
 
@@ -583,18 +596,47 @@ const handleDragStart = (index: number, event: DragEvent) => {
 const handleDragEnd = () => {
     draggedIndex.value = null;
     dragOverIndex.value = null;
+    stopAutoScroll();
 };
 
 // 拖拽经过
-const handleDragOver = (index: number, _event: DragEvent) => {
+const handleDragOver = (index: number, event: DragEvent) => {
     if (!canReorder.value) return;
     if (draggedIndex.value === null || draggedIndex.value === index) return;
     dragOverIndex.value = index;
+
+    // 自动滚动逻辑
+    const container = document.querySelector('.playlist-content') as HTMLElement;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const relativeY = event.clientY - rect.top;
+
+    stopAutoScroll();
+
+    // 向上滚动
+    if (relativeY < SCROLL_ZONE && container.scrollTop > 0) {
+        autoScrollTimer = window.setInterval(() => {
+            container.scrollTop = Math.max(0, container.scrollTop - SCROLL_SPEED);
+            if (container.scrollTop === 0) stopAutoScroll();
+        }, 16);
+    }
+    // 向下滚动
+    else if (relativeY > rect.height - SCROLL_ZONE) {
+        const maxScroll = container.scrollHeight - container.clientHeight;
+        if (container.scrollTop < maxScroll) {
+            autoScrollTimer = window.setInterval(() => {
+                container.scrollTop = Math.min(maxScroll, container.scrollTop + SCROLL_SPEED);
+                if (container.scrollTop === maxScroll) stopAutoScroll();
+            }, 16);
+        }
+    }
 };
 
 // 拖拽离开
 const handleDragLeave = () => {
     dragOverIndex.value = null;
+    stopAutoScroll();
 };
 
 // 放置
@@ -660,6 +702,7 @@ onUnmounted(() => {
     document.removeEventListener("click", handleClickOutside);
     document.removeEventListener("keydown", handleKeyDown);
     document.removeEventListener("keyup", handleKeyUp);
+    stopAutoScroll();
 });
 </script>
 

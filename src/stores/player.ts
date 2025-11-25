@@ -135,6 +135,30 @@ export const usePlayerStore = defineStore("player", () => {
 
   // 播放指定歌曲
   const playSong = (song: Song) => {
+    // 输入验证
+    if (!song) {
+      console.warn('[Player] 无效的歌曲对象: song 为 null 或 undefined');
+      return false;
+    }
+
+    if (!song.id) {
+      console.warn('[Player] 无效的歌曲对象: 缺少 id 字段', song);
+      return false;
+    }
+
+    if (!song.name) {
+      console.warn('[Player] 歌曲缺少名称', song);
+    }
+
+    // 检查播放列表大小限制（防止内存溢出）
+    const MAX_PLAYLIST_SIZE = 1000;
+    if (playlist.value.length >= MAX_PLAYLIST_SIZE) {
+      console.warn(`[Player] 播放列表已满 (${MAX_PLAYLIST_SIZE} 首)，无法添加更多歌曲`);
+      // 可选：移除最旧的歌曲
+      // playlist.value.shift();
+      return false;
+    }
+
     // 重置 API 健康检查状态（可选功能，已禁用）
     // if (typeof window !== "undefined") {
     //   import("@/utils/request").then(({ resetAPIHealthStatus }) => {
@@ -178,6 +202,7 @@ export const usePlayerStore = defineStore("player", () => {
       }
     }
     isPlaying.value = true;
+    return true;
   };
 
   // 播放/暂停

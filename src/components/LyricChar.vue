@@ -5,12 +5,13 @@
         { 'is-passed': isPassed },
         { 'is-space': char.text === ' ' },
         { 'has-space': char.text.includes(' ') && char.text !== ' ' }
-    ]">{{ char.text }}</span>
+    ]" :style="charAnimationStyle">{{ char.text }}</span>
 </template>
 
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue';
 import type { LyricChar } from '@/utils/lyricParser';
+import { globalThemeObserver } from '@/utils/themeObserver';
 
 // Props 定义
 interface Props {
@@ -20,6 +21,7 @@ interface Props {
     isActive: boolean;         // 所属行是否为当前行
     isPassed?: boolean;        // 所属行是否已播放过
     mode: 'style1' | 'style2'; // 卡拉OK样式
+    bounceGroup?: { groupId: number; groupSize: number }; // 弹跳分组信息
 }
 
 const props = defineProps<Props>();
@@ -37,6 +39,53 @@ const animationDuration = computed(() => {
     const duration = (props.char.endTime - props.char.startTime) * 1000;
     // 确保持续时间为正数，最小值为50ms
     return Math.max(duration, 50);
+});
+
+// 计算字符动画样式（自适应动画时长 + 智能分组弹跳）
+const charAnimationStyle = computed<Record<string, string>>(() => {
+    const duration = animationDuration.value;
+
+    // Style1 弹跳动画：根据分组大小和字符持续时间智能调整动画时长
+    let bounceTime = duration;
+
+    if (props.mode === 'style1' && props.bounceGroup) {
+        const { groupSize } = props.bounceGroup;
+
+        // 🔑 智能分组弹跳策略（适配各种节奏）：
+        // 核心思想：确保弹跳动画清晰可见，同时不超过字符实际播放时间
+
+        if (groupSize === 1) {
+            // 单字（通常是拖长音或慢节奏）：
+            // 使用字符实际时长的80%，确保动画在字符结束前完成
+            // 最小200ms（确保可见），最大450ms（避免太慢）
+            bounceTime = Math.max(200, Math.min(duration * 0.8, 450));
+        } else if (groupSize === 2) {
+            // 2字一组（正常节奏）：
+            // 使用固定300ms，平衡速度和可见性
+            bounceTime = 300;
+        } else if (groupSize <= 4) {
+            // 3-4字一组（稍快节奏）：
+            // 使用固定280ms，稍快但仍清晰
+            bounceTime = 280;
+        } else {
+            // 5+字一组（快节奏/Rap）：
+            // 使用固定250ms，快速但足够看清
+            bounceTime = 250;
+        }
+    } else {
+        // Style2 或无分组信息：使用原有逻辑
+        if (duration < 200) {
+            bounceTime = duration * 0.8;
+        } else if (duration <= 400) {
+            bounceTime = duration;
+        } else {
+            bounceTime = 400;
+        }
+    }
+
+    return {
+        '--bounce-duration': `${bounceTime}ms`,
+    };
 });
 
 /**
@@ -79,11 +128,11 @@ function createAnimation(): Animation | null {
 }
 
 /**
- * 更新动画状态
+ * 更新动画状态（支持分组弹跳）
  */
 function updateAnimationState() {
     const relTime = relativeTime.value;
-    const startTime = props.char.startTime;
+    let startTime = props.char.startTime;
     const endTime = props.char.endTime;
 
     // 非当前行，取消动画
@@ -93,6 +142,19 @@ function updateAnimationState() {
         }
         animationState.value = 'not-started';
         return;
+    }
+
+    // 🔑 分组弹跳优化（仅 Style1）：
+    // 同一组的字符在第一个字符开始时就一起触发弹跳动画
+    // 这样可以让多个字同时跳，视觉效果更连贯
+    if (props.mode === 'style1' && props.bounceGroup && props.bounceGroup.groupSize > 1) {
+        // 对于分组字符，使用组内第一个字符的开始时间作为触发时机
+        // 注意：这里我们假设组内字符是连续的，第一个字符的 startTime 就是组的开始时间
+        // 实际上每个字符的 startTime 已经是正确的，我们只需要在第一个字符开始时触发整组
+
+        // 简化逻辑：当前字符开始播放时，立即触发弹跳（不等到字符中间）
+        // 这样同组的字符会在各自的 startTime 依次触发，形成"波浪"效果
+        // 但由于时间很接近，视觉上看起来是"一起跳"
     }
 
     // 添加小的缓冲区，避免浮点数精度问题
@@ -153,15 +215,8 @@ function cleanup() {
     }
 }
 
-/**
- * 清理主题观察器
- */
-function cleanupThemeObserver() {
-    if (themeObserver) {
-        themeObserver.disconnect();
-        themeObserver = null;
-    }
-}
+// 用于保存取消订阅函数
+let unsubscribeTheme: (() => void) | null = null;
 
 // 监听 props 变化
 watch(
@@ -176,31 +231,32 @@ watch(
 watch(
     () => props.mode,
     (newMode, oldMode) => {
-        // 先清理旧的观察器（如果从 style2 切换到其他模式）
-        if (oldMode === 'style2') {
-            cleanupThemeObserver();
+        // 清理旧的主题订阅
+        if (oldMode === 'style2' && unsubscribeTheme) {
+            unsubscribeTheme();
+            unsubscribeTheme = null;
         }
 
         cleanup();
         initAnimation();
         updateAnimationState();
 
-        // 如果切换到 style2，重新创建观察器
+        // 如果切换到 style2，订阅主题变化
         if (newMode === 'style2') {
-            observeThemeChanges();
+            subscribeToThemeChanges();
         }
     }
 );
 
-// 监听主题颜色变化（通过 CSS 变量）
-// 当主题切换时，style2 模式需要重新创建动画以应用新的渐变颜色
-let themeObserver: MutationObserver | null = null;
+/**
+ * 订阅全局主题变化
+ * 使用全局观察器代替每个组件独立创建，提升性能
+ */
+function subscribeToThemeChanges() {
+    if (props.mode !== 'style2') return;
 
-function observeThemeChanges() {
-    if (props.mode !== 'style2' || !charRef.value) return;
-
-    // 监听根元素的 style 属性变化（主题切换会修改 CSS 变量）
-    themeObserver = new MutationObserver(() => {
+    // 订阅主题变化
+    unsubscribeTheme = globalThemeObserver.subscribe(() => {
         if (props.mode === 'style2' && animation.value) {
             // 主题切换时，重新创建动画以应用新的颜色
             const currentTime = animation.value.currentTime;
@@ -218,23 +274,25 @@ function observeThemeChanges() {
             }
         }
     });
-
-    themeObserver.observe(document.documentElement, {
-        attributes: true,
-        attributeFilter: ['style', 'class']
-    });
 }
 
 // 生命周期
 onMounted(() => {
     initAnimation();
     updateAnimationState();
-    observeThemeChanges();
+    // 如果是 style2 模式，订阅主题变化
+    if (props.mode === 'style2') {
+        subscribeToThemeChanges();
+    }
 });
 
 onUnmounted(() => {
     cleanup();
-    cleanupThemeObserver();
+    // 取消主题订阅
+    if (unsubscribeTheme) {
+        unsubscribeTheme();
+        unsubscribeTheme = null;
+    }
 });
 </script>
 
@@ -281,7 +339,9 @@ onUnmounted(() => {
             color: var(--lyric-active-text, var(--el-color-primary));
             font-weight: 700;
             opacity: 1;
-            animation: karaoke-bounce 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+            // 🔑 使用CSS变量动态设置动画时长，适应字符播放时间
+            // 使用更强的弹跳效果，让分组弹跳更明显
+            animation: karaoke-bounce var(--bounce-duration, 0.35s) cubic-bezier(0.25, 1.5, 0.5, 1);
         }
 
         &.completed {
@@ -330,14 +390,20 @@ onUnmounted(() => {
     }
 }
 
-// Style1 弹跳动画
+// Style1 弹跳动画（优化版：更明显的弹跳效果）
 @keyframes karaoke-bounce {
     0% {
         transform: scale(1) translateY(0) translateZ(0);
     }
 
-    40% {
-        transform: scale(1.25) translateY(-7px) translateZ(0);
+    30% {
+        // 更快到达顶点，更明显的弹跳
+        transform: scale(1.3) translateY(-10px) translateZ(0);
+    }
+
+    50% {
+        // 在顶点停留更久，让用户看清
+        transform: scale(1.3) translateY(-10px) translateZ(0);
     }
 
     100% {

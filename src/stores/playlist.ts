@@ -51,13 +51,13 @@ export const usePlaylistStore = defineStore("playlist", () => {
   // 标志：是否正在从其他标签页同步数据（避免循环广播）
   let isSyncing = false;
 
-  // 监听状态变化，自动保存并同步到其他标签页
-  watch(
-    [playlists, historyList, favoriteList],
-    () => {
-      // 如果正在同步，跳过广播
-      if (isSyncing) return;
-
+  // 防抖保存函数：避免频繁写入 localStorage
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  const debouncedSave = () => {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+    }
+    saveTimer = setTimeout(() => {
       try {
         const state = {
           playlists: playlists.value,
@@ -65,12 +65,23 @@ export const usePlaylistStore = defineStore("playlist", () => {
           favoriteList: favoriteList.value,
         };
         persist.save(STORAGE_KEY, state);
-
         // 广播到其他标签页
         tabSync.broadcast("playlist", state);
       } catch (error) {
         console.error("保存歌单数据失败:", error);
       }
+    }, 500); // 500ms 防抖延迟
+  };
+
+  // 监听状态变化，自动保存并同步到其他标签页
+  watch(
+    [playlists, historyList, favoriteList],
+    () => {
+      // 如果正在同步，跳过广播
+      if (isSyncing) return;
+
+      // 使用防抖保存，避免频繁操作时多次写入
+      debouncedSave();
     },
     { deep: true }
   );
