@@ -66,6 +66,20 @@ export class ElectronAdapter implements IStorageAdapter {
     if (blob instanceof File) {
       // File 对象包含 path 属性（Electron 环境）
       originalPath = (blob as any).path || "";
+
+      // 如果没有 path 属性，尝试使用 webkitRelativePath 或 name
+      if (!originalPath) {
+        originalPath = (blob as any).webkitRelativePath || blob.name || "";
+        console.warn(
+          `⚠️ File 对象缺少 path 属性，使用备用路径: ${originalPath}`
+        );
+      }
+    }
+
+    // 验证路径是否有效 - 必须是绝对路径
+    if (!originalPath || (!originalPath.includes('/') && !originalPath.includes('\\'))) {
+      console.error(`❌ 无法获取有效的文件路径 [${id}]，路径: ${originalPath}`);
+      throw new Error("无法获取文件路径，请确保使用 Electron dialog 选择文件");
     }
 
     const electronMetadata: ElectronTrackMetadata = {

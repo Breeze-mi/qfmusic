@@ -533,8 +533,44 @@ const handleClickOutside = () => {
     }
 };
 
-const handleImportLocal = () => {
-    fileInputRef.value?.click();
+const handleImportLocal = async () => {
+    // 检查是否在Electron环境中
+    if (window.electronAPI?.showOpenDialog) {
+        // 使用Electron dialog选择文件
+        try {
+            const result = await window.electronAPI.showOpenDialog();
+
+            if (!result.success || result.canceled) {
+                return;
+            }
+
+            if (!result.files || result.files.length === 0) {
+                return;
+            }
+
+            ElMessage.info(`正在导入 ${result.files.length} 个文件...`);
+
+            // 将返回的文件信息转换为File对象
+            const files: File[] = result.files.map((fileInfo: any) => {
+                const blob = new Blob([fileInfo.buffer]);
+                const file = new File([blob], fileInfo.name, {
+                    type: `audio/${fileInfo.name.split('.').pop()}`,
+                });
+                // 添加path属性
+                (file as any).path = fileInfo.path;
+                return file;
+            });
+
+            const results = await localMusicStore.addLocalFiles(files);
+            ElMessage.success(`成功导入 ${results.length} 首歌曲`);
+        } catch (error) {
+            console.error("导入失败:", error);
+            ElMessage.error("导入失败，请重试");
+        }
+    } else {
+        // 浏览器环境，使用文件选择器
+        fileInputRef.value?.click();
+    }
 };
 
 const handleFileChange = async (event: Event) => {
@@ -1008,10 +1044,17 @@ onUnmounted(() => {
         font-size: var(--custom-font-size-md);
         color: var(--el-text-color-primary);
         position: relative;
+        user-select: none;
 
         .el-icon {
             font-size: var(--custom-font-size-lg);
             color: var(--el-text-color-regular);
+            transition: color 0.2s;
+            flex-shrink: 0;
+        }
+
+        span {
+            flex: 1;
             transition: color 0.2s;
         }
 
@@ -1022,8 +1065,13 @@ onUnmounted(() => {
 
         &:hover {
             background: var(--el-fill-color-light);
+            color: var(--el-color-primary);
 
             .el-icon {
+                color: var(--el-color-primary);
+            }
+
+            span {
                 color: var(--el-color-primary);
             }
         }

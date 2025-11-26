@@ -46,6 +46,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   readLocalFile(filePath: string) {
     return ipcRenderer.invoke("read-local-file", filePath);
   },
+  // 新增：使用Electron dialog选择音频文件
+  showOpenDialog() {
+    return ipcRenderer.invoke("show-open-dialog");
+  },
 });
 
 // 缓存管理 API

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, dialog } from "electron";
 // import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -322,6 +322,43 @@ ipcMain.handle("read-local-file", async (_event, filePath: string) => {
     return { success: true, buffer: buffer.buffer };
   } catch (error: any) {
     console.error("读取本地文件失败:", error);
+    return { success: false, error: error.message };
+  }
+});
+
+// 新增：使用Electron dialog选择音频文件
+ipcMain.handle("show-open-dialog", async () => {
+  try {
+    const result = await dialog.showOpenDialog({
+      properties: ["openFile", "multiSelections"],
+      filters: [
+        { name: "音频文件", extensions: ["mp3", "flac", "wav", "ogg", "m4a", "aac", "wma"] },
+        { name: "所有文件", extensions: ["*"] }
+      ],
+      title: "选择音频文件"
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+
+    // 读取每个文件的信息并返回
+    const filesInfo = await Promise.all(
+      result.filePaths.map(async (filePath) => {
+        const stats = await fs.stat(filePath);
+        const buffer = await fs.readFile(filePath);
+        return {
+          path: filePath,
+          name: path.basename(filePath),
+          size: stats.size,
+          buffer: buffer.buffer,
+        };
+      })
+    );
+
+    return { success: true, files: filesInfo };
+  } catch (error: any) {
+    console.error("选择文件失败:", error);
     return { success: false, error: error.message };
   }
 });
