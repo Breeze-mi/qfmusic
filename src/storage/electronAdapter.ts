@@ -153,9 +153,24 @@ export class ElectronAdapter implements IStorageAdapter {
       return null;
     }
 
-    // 引用模式：直接使用 file:// 协议
-    // 注意：Electron 需要配置允许访问本地文件
-    const fileUrl = `file://${metadata.originalPath.replace(/\\/g, "/")}`;
+    // 引用模式：使用 file:// 协议（带正确的URL编码）
+    // 1. 统一路径分隔符为正斜杠
+    let normalizedPath = metadata.originalPath.replace(/\\/g, "/");
+
+    // 2. 对路径中的每个部分进行URL编码，处理中文和特殊字符
+    // 分割路径，对每个部分编码后再组合
+    const pathParts = normalizedPath.split("/");
+    const encodedParts = pathParts.map(part => {
+      // 跳过空字符串和盘符(如 C:)
+      if (!part || part.endsWith(":")) return part;
+      // 编码路径部分，处理中文和特殊字符
+      return encodeURIComponent(part);
+    });
+    const encodedPath = encodedParts.join("/");
+
+    // 3. 构建 file:// URL
+    // Windows: file:///C:/path/to/file.mp3 (需要三个斜杠)
+    const fileUrl = `file:///${encodedPath}`;
 
     // 缓存 URL
     this.urlCache.set(id, fileUrl);

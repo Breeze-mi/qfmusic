@@ -147,13 +147,13 @@
                 <div class="setting-item">
                     <div class="setting-info">
                         <div class="setting-title">歌词字体大小</div>
-                        <div class="setting-desc">自定义歌曲详情页中已播放和未播放歌词的字体大小（单位：px）</div>
+                        <div class="setting-desc">自定义歌曲详情页中正在播放和未播放歌词的字体大小（单位：px）</div>
                     </div>
                     <div style="display: flex; gap: 12px; align-items: center;">
                         <div style="display: flex; flex-direction: column; gap: 8px;">
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <span
-                                    style="width: 80px; color: var(--el-text-color-primary); font-size: var(--custom-font-size-base);">已播放：</span>
+                                    style="width: 80px; color: var(--el-text-color-primary); font-size: var(--custom-font-size-base);">播放中：</span>
                                 <el-input-number v-model="lyricActiveSizeInput" :min="12" :max="60" :step="1"
                                     style="width: 120px" @change="handleLyricFontSizeChange" />
                                 <span
@@ -186,6 +186,19 @@
                             style="color: var(--el-text-color-primary); font-size: var(--custom-font-size-base);">秒</span>
                         <el-button @click="handleResetLyricOffset" size="small">重置</el-button>
                     </div>
+                </div>
+            </div>
+
+            <!-- 通用设置 -->
+            <div class="settings-section" v-if="settingsStore.isElectron()">
+                <h2>通用</h2>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-title">关闭时最小化到托盘</div>
+                        <div class="setting-desc">关闭窗口时最小化到系统托盘而不是退出程序，双击托盘图标可重新显示窗口</div>
+                    </div>
+                    <el-switch v-model="settingsStore.closeToTray" active-text="开启" inactive-text="关闭"
+                        @change="handleCloseToTrayChange" />
                 </div>
             </div>
 
@@ -615,6 +628,16 @@ const handleClearCoverCache = async () => {
             }
         })
         .catch(() => { });
+};
+
+// 处理关闭到托盘开关变化
+const handleCloseToTrayChange = (value: boolean) => {
+    settingsStore.setCloseToTray(value);
+    if (value) {
+        ElMessage.success("已开启后台运行，关闭窗口时将最小化到系统托盘");
+    } else {
+        ElMessage.info("已关闭后台运行，关闭窗口时将直接退出程序");
+    }
 };
 
 // 导出数据

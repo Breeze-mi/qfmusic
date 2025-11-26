@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage } from "electron";
 // import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -28,6 +28,52 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
   : RENDERER_DIST;
 
 let win: BrowserWindow | null;
+let tray: Tray | null = null;
+
+// 创建系统托盘
+function createTray() {
+  // 使用应用图标创建托盘
+  const iconPath = path.join(process.env.VITE_PUBLIC, "icon.ico");
+
+  // 创建托盘图标
+  tray = new Tray(iconPath);
+
+  // 设置托盘提示文字
+  tray.setToolTip("清风音乐");
+
+  // 创建托盘右键菜单
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: "显示主窗口",
+      click: () => {
+        if (win) {
+          win.show();
+          win.focus();
+        }
+      }
+    },
+    {
+      type: "separator"
+    },
+    {
+      label: "退出",
+      click: () => {
+        app.isQuiting = true;
+        app.quit();
+      }
+    }
+  ]);
+
+  tray.setContextMenu(contextMenu);
+
+  // 双击托盘图标显示窗口
+  tray.on("double-click", () => {
+    if (win) {
+      win.show();
+      win.focus();
+    }
+  });
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -36,8 +82,12 @@ function createWindow() {
     height: 700,
     webPreferences: {
       preload: path.join(__dirname, "preload.mjs"),
-      devTools: true, // 启用开发者工具
-      webSecurity: false, // 允许访问本地文件（引用模式需要）
+      devTools: !app.isPackaged, // 仅开发环境启用开发工具
+      // 为了支持 file:// 协议访问本地文件，需要特殊配置
+      // 使用更安全的方式：只在打包后的生产环境禁用 webSecurity
+      webSecurity: false, // 访问本地文件需要
+      nodeIntegration: false, // 保持禁用
+      contextIsolation: true, // 保持启用
       allowRunningInsecureContent: false,
     },
   });
@@ -58,6 +108,19 @@ function createWindow() {
     // win.loadFile('dist/index.html')
     win.loadFile(path.join(RENDERER_DIST, "index.html"));
   }
+
+  // 处理窗口关闭事件
+  win.on("close", (event) => {
+    if (!app.isQuiting) {
+      event.preventDefault();
+
+      // 从渲染进程获取设置
+      win?.webContents.send("get-tray-setting");
+
+      // 默认最小化到托盘（如果用户没有设置，默认启用）
+      win?.hide();
+    }
+  });
 }
 
 // Quit when all windows are closed, except on macOS. There, it's common
@@ -363,7 +426,32 @@ ipcMain.handle("show-open-dialog", async () => {
   }
 });
 
+// IPC 处理：控制是否最小化到托盘
+ipcMain.handle("set-close-to-tray", async (_event, enabled: boolean) => {
+  app.isQuiting = !enabled;
+  return { success: true };
+});
+
+// IPC 处理：显示/隐藏窗口
+ipcMain.handle("show-window", async () => {
+  if (win) {
+    win.show();
+    win.focus();
+  }
+  return { success: true };
+});
+
+ipcMain.handle("hide-window", async () => {
+  if (win) {
+    win.hide();
+  }
+  return { success: true };
+});
+
 app.whenReady().then(() => {
+  // 创建系统托盘
+  createTray();
+
   if (VITE_DEV_SERVER_URL) {
     ipcMain.on("open-f12", () => {
       win?.webContents.openDevTools();

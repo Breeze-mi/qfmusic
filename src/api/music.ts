@@ -57,14 +57,14 @@ export interface Album {
 // 音乐 API
 const MusicApi = {
   // 健康检查（可选功能，第三方API可能没有此接口）
-  // health: async () => {
-  //   const response = await Request.get<ApiResponse>("/health");
-  //   return response.data;
-  // },
+  health: async () => {
+    const response = await Request.get<ApiResponse>("/mcapi/health");
+    return response.data;
+  },
 
   // 搜索歌曲
   search: async (keyword: string, limit: number = 30) => {
-    const response = await Request.post<ApiResponse<Song[]>>("/search", {
+    const response = await Request.post<ApiResponse<Song[]>>("/mcapi/search", {
       keyword,
       limit,
     });
@@ -73,18 +73,21 @@ const MusicApi = {
 
   // 获取歌曲详情和播放链接
   getSong: async (id: string | number, level: string = "lossless") => {
-    const response = await Request.post<ApiResponse<SongDetail>>("/song", {
-      url: String(id),
-      level,
-      type: "json",
-    });
+    const response = await Request.post<ApiResponse<SongDetail>>(
+      "/mcapi/song",
+      {
+        url: String(id),
+        level,
+        type: "json",
+      }
+    );
     return response.data;
   },
 
   // 获取歌单
   getPlaylist: async (id: string) => {
     const response = await Request.post<ApiResponse<{ playlist: Playlist }>>(
-      "/playlist",
+      "/mcapi/playlist",
       {
         id,
       }
@@ -95,7 +98,7 @@ const MusicApi = {
   // 获取专辑
   getAlbum: async (id: string) => {
     const response = await Request.post<ApiResponse<{ album: Album }>>(
-      "/album",
+      "/mcapi/album",
       {
         id,
       }

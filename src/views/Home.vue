@@ -91,8 +91,12 @@
 
             <div v-else class="playing-info">
                 <div class="current-playing">
-                    <img :src="playerStore.currentSong.picUrl" :alt="playerStore.currentSong.name" class="large-cover"
-                        :class="{ rotating: playerStore.isPlaying }" loading="lazy" />
+                    <img v-if="playerStore.currentSong.picUrl" :src="playerStore.currentSong.picUrl"
+                        :alt="playerStore.currentSong.name" class="large-cover"
+                        :class="{ rotating: playerStore.isPlaying }" loading="lazy" @error="handleCoverError" />
+                    <div v-else class="large-cover-placeholder" :class="{ rotating: playerStore.isPlaying }">
+                        🎵
+                    </div>
                     <h2>{{ playerStore.currentSong.name }}</h2>
                     <p>{{ playerStore.currentSong.artists }}</p>
                 </div>
@@ -420,6 +424,17 @@ const handleKeyDown = (event: KeyboardEvent) => {
 const handleKeyUp = (event: KeyboardEvent) => {
     if (event.key === 'Shift') {
         isShiftPressed.value = false;
+    }
+};
+
+// 处理封面图片加载错误
+const handleCoverError = (e: Event) => {
+    const target = e.target as HTMLImageElement;
+    // 隐藏损坏的图片，让占位符显示
+    target.style.display = 'none';
+    // 清空picUrl，触发占位符显示
+    if (playerStore.currentSong) {
+        playerStore.currentSong.picUrl = '';
     }
 };
 
@@ -790,17 +805,30 @@ watch(() => searchStore.searchResults, () => {
             .current-playing {
                 text-align: center;
 
-                .large-cover {
+                .large-cover,
+                .large-cover-placeholder {
                     width: 280px;
                     height: 280px;
                     border-radius: 8px;
-                    object-fit: cover;
                     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
                     margin-bottom: 24px;
 
                     &.rotating {
                         animation: rotate 20s linear infinite;
                     }
+                }
+
+                .large-cover {
+                    object-fit: cover;
+                }
+
+                .large-cover-placeholder {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 120px;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: rgba(255, 255, 255, 0.9);
                 }
 
                 h2 {

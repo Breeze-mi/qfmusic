@@ -49,6 +49,7 @@ export const useSettingsStore = defineStore("settings", () => {
       karaokeMode: "off", // 默认关闭
       globalLyricOffset: 0, // 全局歌词偏移量（秒）
       songLyricOffsets: {}, // 单曲歌词偏移量（Map）
+      closeToTray: true, // 默认关闭到托盘
     };
   };
 
@@ -100,6 +101,11 @@ export const useSettingsStore = defineStore("settings", () => {
     savedSettings.songLyricOffsets || {}
   );
 
+  // 是否关闭到托盘（仅Electron环境有效）
+  const closeToTray = ref<boolean>(
+    savedSettings.closeToTray !== false // 默认为 true
+  );
+
   // 标志：是否正在从其他标签页同步数据（避免循环广播）
   let isSyncing = false;
 
@@ -121,6 +127,7 @@ export const useSettingsStore = defineStore("settings", () => {
         karaokeMode: karaokeMode.value,
         globalLyricOffset: globalLyricOffset.value,
         songLyricOffsets: songLyricOffsets.value,
+        closeToTray: closeToTray.value,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 
@@ -145,6 +152,7 @@ export const useSettingsStore = defineStore("settings", () => {
       karaokeMode,
       globalLyricOffset,
       songLyricOffsets,
+      closeToTray,
     ],
     saveSettings,
     { deep: true }
@@ -167,6 +175,7 @@ export const useSettingsStore = defineStore("settings", () => {
     karaokeMode.value = data.karaokeMode || "off";
     globalLyricOffset.value = data.globalLyricOffset || 0;
     songLyricOffsets.value = data.songLyricOffsets || {};
+    closeToTray.value = data.closeToTray !== false;
 
     // 使用 nextTick 确保在下一个 tick 重置同步标志
     nextTick(() => {
@@ -314,6 +323,20 @@ export const useSettingsStore = defineStore("settings", () => {
     }
   };
 
+  // 设置是否关闭到托盘
+  const setCloseToTray = async (enabled: boolean) => {
+    closeToTray.value = enabled;
+
+    // 如果在Electron环境，通知主进程
+    if (isElectron() && (window as any).electron) {
+      try {
+        await (window as any).electron.invoke("set-close-to-tray", enabled);
+      } catch (error) {
+        console.error("设置关闭到托盘失败:", error);
+      }
+    }
+  };
+
   return {
     quality,
     searchType,
@@ -326,6 +349,7 @@ export const useSettingsStore = defineStore("settings", () => {
     karaokeMode,
     globalLyricOffset,
     songLyricOffsets,
+    closeToTray,
     setQuality,
     setSearchType,
     setFontSize,
@@ -336,6 +360,7 @@ export const useSettingsStore = defineStore("settings", () => {
     setKaraokeMode,
     getLyricOffset,
     setLyricOffset,
+    setCloseToTray,
     isElectron,
     isProduction,
     isDevelopment,
