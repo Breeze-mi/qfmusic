@@ -96,20 +96,58 @@ const requestInterceptor = (config: RequestConfig): RequestConfig => {
 const responseInterceptor = async <T>(
   response: globalThis.Response
 ): Promise<Response<T>> => {
-  const data = await response.json();
+  // 检查响应状态
+  if (!response.ok) {
+    // 尝试解析错误信息
+    let errorMessage = `请求失败: ${response.statusText}`;
+    try {
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        const errorData = await response.json();
+        errorMessage = errorData.message || errorMessage;
+      } else {
+        // 如果不是 JSON，可能是 HTML 错误页面
+        const textContent = await response.text();
+        if (textContent.includes("<html")) {
+          errorMessage = `服务器错误 (${response.status})，请检查后端服务是否正常运行`;
+        } else {
+          errorMessage = textContent || errorMessage;
+        }
+      }
+    } catch (e) {
+      // 解析失败，使用默认错误信息
+    }
+
+    throw new RequestError(errorMessage, response.status);
+  }
+
+  // 解析 JSON 响应
+  let data: any;
+  try {
+    const contentType = response.headers.get("content-type");
+    if (contentType && contentType.includes("application/json")) {
+      data = await response.json();
+    } else {
+      // 不是 JSON 响应
+      await response.text(); // 读取但不使用，避免警告
+      throw new RequestError(
+        `服务器返回了非 JSON 响应，请检查 API 地址是否正确`,
+        response.status
+      );
+    }
+  } catch (error) {
+    if (error instanceof RequestError) {
+      throw error;
+    }
+    throw new RequestError(
+      `解析响应失败: ${error instanceof Error ? error.message : "未知错误"}`,
+      response.status
+    );
+  }
 
   // 仅在开发环境打印响应日志
   if (import.meta.env.DEV) {
     console.log(`[Response] ${response.status} ${response.url}`, data);
-  }
-
-  // 检查响应状态
-  if (!response.ok) {
-    throw new RequestError(
-      data.message || `请求失败: ${response.statusText}`,
-      response.status,
-      data
-    );
   }
 
   // 检查业务状态码

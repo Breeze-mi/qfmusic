@@ -423,6 +423,7 @@ watch(
 
                     // 设置简单的歌曲详情
                     playerStore.setCurrentSongDetail({
+                        id: newSong.id,
                         name: localFile.name,
                         ar_name: localFile.artists,
                         al_name: localFile.album,
@@ -800,11 +801,39 @@ const handleEnded = () => {
 
     // 单曲循环模式 或 只有一首歌：重新播放当前歌曲
     if (playerStore.playMode === PlayMode.LOOP || playerStore.playlist.length === 1) {
-        if (audioRef.value) {
-            audioRef.value.currentTime = 0;
-            audioRef.value.play().catch(err => {
-                console.error("重新播放失败:", err);
-            });
+        if (audioRef.value && playerStore.currentSong) {
+            // 🔑 检查是否有缓存的音频，如果有则使用缓存
+            const checkAndUseCache = async () => {
+                const currentSong = playerStore.currentSong;
+                if (!currentSong || !audioRef.value) return;
+
+                // 检查是否有音频缓存
+                if (audioCacheStore) {
+                    const cachedAudio = await audioCacheStore.getCachedAudio(currentSong.id);
+                    if (cachedAudio) {
+                        console.log(`🔄 单曲循环：使用缓存音频 - ${currentSong.name}`);
+                        // 释放旧的 Blob URL
+                        revokeBlobUrl();
+                        // 使用缓存的音频
+                        currentBlobUrl.value = URL.createObjectURL(cachedAudio);
+                        audioRef.value.src = currentBlobUrl.value;
+                        audioRef.value.load();
+                        audioRef.value.currentTime = 0;
+                        audioRef.value.play().catch(err => {
+                            console.error("播放缓存音频失败:", err);
+                        });
+                        return;
+                    }
+                }
+
+                // 如果没有缓存，直接重置时间播放（使用当前的在线音源）
+                audioRef.value.currentTime = 0;
+                audioRef.value.play().catch(err => {
+                    console.error("重新播放失败:", err);
+                });
+            };
+
+            checkAndUseCache();
         }
         return;
     }
@@ -980,6 +1009,7 @@ onMounted(async () => {
                 audioRef.value.load();
 
                 playerStore.setCurrentSongDetail({
+                    id: song.id,
                     name: localFile.name,
                     ar_name: localFile.artists,
                     al_name: localFile.album,

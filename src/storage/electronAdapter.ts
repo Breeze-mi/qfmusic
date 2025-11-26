@@ -11,28 +11,28 @@ interface ElectronTrackMetadata extends TrackMetadata {
 }
 
 // 类型定义
-declare global {
-  interface Window {
-    electronAPI?: {
-      // 保留这些接口以兼容旧代码，但不再使用
-      saveLocalMusic(
-        id: string,
-        buffer: ArrayBuffer
-      ): Promise<{ success: boolean; error?: string }>;
-      readLocalMusic(
-        id: string
-      ): Promise<{ success: boolean; buffer?: ArrayBuffer; error?: string }>;
-      deleteLocalMusic(
-        id: string
-      ): Promise<{ success: boolean; error?: string }>;
-      clearLocalMusic(): Promise<{ success: boolean; error?: string }>;
-      // 新增：读取本地文件路径
-      readLocalFile(
-        filePath: string
-      ): Promise<{ success: boolean; buffer?: ArrayBuffer; error?: string }>;
-    };
-  }
-}
+// declare global {
+//   interface Window {
+//     electronAPI?: {
+//       // 保留这些接口以兼容旧代码，但不再使用
+//       saveLocalMusic(
+//         id: string,
+//         buffer: ArrayBuffer
+//       ): Promise<{ success: boolean; error?: string }>;
+//       readLocalMusic(
+//         id: string
+//       ): Promise<{ success: boolean; buffer?: ArrayBuffer; error?: string }>;
+//       deleteLocalMusic(
+//         id: string
+//       ): Promise<{ success: boolean; error?: string }>;
+//       clearLocalMusic(): Promise<{ success: boolean; error?: string }>;
+//       // 新增：读取本地文件路径
+//       readLocalFile(
+//         filePath: string
+//       ): Promise<{ success: boolean; buffer?: ArrayBuffer; error?: string }>;
+//     };
+//   }
+// }
 
 export class ElectronAdapter implements IStorageAdapter {
   private metadata: Map<string, ElectronTrackMetadata> = new Map();
@@ -77,7 +77,10 @@ export class ElectronAdapter implements IStorageAdapter {
     }
 
     // 验证路径是否有效 - 必须是绝对路径
-    if (!originalPath || (!originalPath.includes('/') && !originalPath.includes('\\'))) {
+    if (
+      !originalPath ||
+      (!originalPath.includes("/") && !originalPath.includes("\\"))
+    ) {
       console.error(`❌ 无法获取有效的文件路径 [${id}]，路径: ${originalPath}`);
       throw new Error("无法获取文件路径，请确保使用 Electron dialog 选择文件");
     }

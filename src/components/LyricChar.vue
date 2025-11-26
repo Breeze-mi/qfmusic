@@ -21,7 +21,7 @@ interface Props {
     isActive: boolean;         // 所属行是否为当前行
     isPassed?: boolean;        // 所属行是否已播放过
     mode: 'style1' | 'style2'; // 卡拉OK样式
-    bounceGroup?: { groupId: number; groupSize: number }; // 弹跳分组信息
+    bounceGroup?: { groupId: number; groupSize: number; groupStartTime: number }; // 弹跳分组信息
 }
 
 const props = defineProps<Props>();
@@ -54,24 +54,31 @@ const charAnimationStyle = computed<Record<string, string>>(() => {
         // 🔑 智能分组弹跳策略（适配各种节奏）：
         // 核心思想：确保弹跳动画清晰可见，同时不超过字符实际播放时间
 
+        // 先根据分组大小确定理想的弹跳时长
+        let idealBounceTime: number;
+
         if (groupSize === 1) {
-            // 单字（通常是拖长音或慢节奏）：
-            // 使用字符实际时长的80%，确保动画在字符结束前完成
-            // 最小200ms（确保可见），最大450ms（避免太慢）
-            bounceTime = Math.max(200, Math.min(duration * 0.8, 450));
+            idealBounceTime = duration * 0.75;
         } else if (groupSize === 2) {
-            // 2字一组（正常节奏）：
-            // 使用固定300ms，平衡速度和可见性
-            bounceTime = 300;
-        } else if (groupSize <= 4) {
-            // 3-4字一组（稍快节奏）：
-            // 使用固定280ms，稍快但仍清晰
-            bounceTime = 280;
+            idealBounceTime = 280;
+        } else if (groupSize === 3) {
+            idealBounceTime = 260;
+        } else if (groupSize === 4) {
+            idealBounceTime = 240;
         } else {
-            // 5+字一组（快节奏/Rap）：
-            // 使用固定250ms，快速但足够看清
-            bounceTime = 250;
+            idealBounceTime = 220;
         }
+
+        // 🔑 关键优化：弹跳时长不能超过字符实际时长的85%
+        const maxBounceTime = duration * 0.85;
+        bounceTime = Math.min(idealBounceTime, maxBounceTime);
+
+        // 🔑 最小值保护：至少120ms，但如果字符很短（<150ms），则用80%
+        const minBounceTime = duration < 150 ? duration * 0.8 : 120;
+        bounceTime = Math.max(minBounceTime, bounceTime);
+
+        // 🔑 最大值保护：不超过420ms
+        bounceTime = Math.min(bounceTime, 420);
     } else {
         // Style2 或无分组信息：使用原有逻辑
         if (duration < 200) {
@@ -145,16 +152,11 @@ function updateAnimationState() {
     }
 
     // 🔑 分组弹跳优化（仅 Style1）：
-    // 同一组的字符在第一个字符开始时就一起触发弹跳动画
-    // 这样可以让多个字同时跳，视觉效果更连贯
+    // 同一组的字符使用组的开始时间，实现真正的同时弹跳
     if (props.mode === 'style1' && props.bounceGroup && props.bounceGroup.groupSize > 1) {
-        // 对于分组字符，使用组内第一个字符的开始时间作为触发时机
-        // 注意：这里我们假设组内字符是连续的，第一个字符的 startTime 就是组的开始时间
-        // 实际上每个字符的 startTime 已经是正确的，我们只需要在第一个字符开始时触发整组
-
-        // 简化逻辑：当前字符开始播放时，立即触发弹跳（不等到字符中间）
-        // 这样同组的字符会在各自的 startTime 依次触发，形成"波浪"效果
-        // 但由于时间很接近，视觉上看起来是"一起跳"
+        // 使用组的开始时间替代字符自己的开始时间
+        // 这样同组的所有字符会在同一时刻触发弹跳动画
+        startTime = props.bounceGroup.groupStartTime;
     }
 
     // 添加小的缓冲区，避免浮点数精度问题
@@ -176,7 +178,19 @@ function updateAnimationState() {
     }
     // 播放中
     else {
+        // 🔑 关键修复：检测是否刚进入播放状态
+        const wasNotPlaying = animationState.value !== 'playing';
+
         animationState.value = 'playing';
+
+        // Style1 弹跳动画：刚进入播放状态时，强制重新触发动画
+        if (props.mode === 'style1' && wasNotPlaying && charRef.value) {
+            // 通过移除并重新添加 animation 来强制重新触发 CSS 动画
+            const element = charRef.value;
+            element.style.animation = 'none';
+            void element.offsetHeight; // 强制重排
+            element.style.animation = ''; // 恢复动画
+        }
 
         if (props.mode === 'style2' && animation.value) {
             // 时间漂移校正：计算已经过去的时间

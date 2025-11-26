@@ -78,11 +78,11 @@ export function splitTextToChars(text: string): string[] {
  * 4. 自适应调整：根据整行的平均节奏动态调整分组策略
  *
  * @param chars 字符数组
- * @returns 分组信息数组，每个元素包含该字符所属的组ID和组内字符数
+ * @returns 分组信息数组，每个元素包含该字符所属的组ID、组内字符数和组开始时间
  */
 export function calculateBounceGroups(
   chars: LyricChar[]
-): Array<{ groupId: number; groupSize: number }> {
+): Array<{ groupId: number; groupSize: number; groupStartTime: number }> {
   if (!chars || chars.length === 0) {
     return [];
   }
@@ -90,7 +90,11 @@ export function calculateBounceGroups(
   // 过滤掉空格，计算有效字符的平均时长
   const validChars = chars.filter((c) => c.text.trim() !== "");
   if (validChars.length === 0) {
-    return chars.map(() => ({ groupId: 0, groupSize: 1 }));
+    return chars.map((c) => ({
+      groupId: 0,
+      groupSize: 1,
+      groupStartTime: c.startTime,
+    }));
   }
 
   const totalDuration = validChars.reduce(
@@ -106,31 +110,36 @@ export function calculateBounceGroups(
 
   if (avgCharDuration < 150) {
     // 超快节奏（Rap、快歌）：平均<150ms/字
-    MIN_GROUP_DURATION = 200; // 组总时长至少200ms
-    LONG_CHAR_THRESHOLD = 300; // >300ms算拖长音
-    MAX_GROUP_SIZE = 6; // 最多6字一组
+    MIN_GROUP_DURATION = 220; // 组总时长至少220ms（微调+20ms，确保动画完整）
+    LONG_CHAR_THRESHOLD = 280; // >280ms算拖长音（微调-20ms，更早识别拖长音）
+    MAX_GROUP_SIZE = 5; // 最多5字一组（微调-1，避免组太大）
   } else if (avgCharDuration < 250) {
     // 快节奏：平均150-250ms/字
-    MIN_GROUP_DURATION = 250; // 组总时长至少250ms
-    LONG_CHAR_THRESHOLD = 350; // >350ms算拖长音
-    MAX_GROUP_SIZE = 4; // 最多4字一组
+    MIN_GROUP_DURATION = 260; // 组总时长至少260ms（微调+10ms）
+    LONG_CHAR_THRESHOLD = 380; // >380ms算拖长音（微调+30ms，更准确）
+    MAX_GROUP_SIZE = 3; // 最多3字一组（微调-1，更精细）
   } else if (avgCharDuration < 400) {
     // 正常节奏：平均250-400ms/字
-    MIN_GROUP_DURATION = 300; // 组总时长至少300ms
-    LONG_CHAR_THRESHOLD = 450; // >450ms算拖长音
-    MAX_GROUP_SIZE = 3; // 最多3字一组
+    MIN_GROUP_DURATION = 280; // 组总时长至少280ms（微调-20ms，更灵活）
+    LONG_CHAR_THRESHOLD = 500; // >500ms算拖长音（微调+50ms，避免误判）
+    MAX_GROUP_SIZE = 2; // 最多2字一组（微调-1，更清晰）
   } else {
     // 慢节奏：平均>400ms/字
-    MIN_GROUP_DURATION = 350; // 组总时长至少350ms
-    LONG_CHAR_THRESHOLD = 600; // >600ms算拖长音
-    MAX_GROUP_SIZE = 2; // 最多2字一组
+    MIN_GROUP_DURATION = 300; // 组总时长至少300ms（微调-50ms，更自然）
+    LONG_CHAR_THRESHOLD = 650; // >650ms算拖长音（微调+50ms，更准确）
+    MAX_GROUP_SIZE = 2; // 最多2字一组（保持不变）
   }
 
-  const groups: Array<{ groupId: number; groupSize: number }> = [];
+  const groups: Array<{
+    groupId: number;
+    groupSize: number;
+    groupStartTime: number;
+  }> = [];
   let currentGroupId = 0;
   let currentGroupStartIndex = 0;
   let currentGroupDuration = 0;
   let currentGroupCharCount = 0; // 当前组的有效字符数（不含空格）
+  let currentGroupStartTime = chars.length > 0 ? chars[0].startTime : 0; // 当前组的开始时间（相对于行开始）
 
   for (let i = 0; i < chars.length; i++) {
     const char = chars[i];
@@ -164,21 +173,25 @@ export function calculateBounceGroups(
     if (charDuration >= LONG_CHAR_THRESHOLD && currentGroupCharCount === 1) {
       // 拖长音单独成组
       const groupSize = i - currentGroupStartIndex + 1;
+      const groupStartTime = currentGroupStartTime;
       for (let j = currentGroupStartIndex; j <= i; j++) {
-        groups.push({ groupId: currentGroupId, groupSize });
+        groups.push({ groupId: currentGroupId, groupSize, groupStartTime });
       }
       currentGroupId++;
       currentGroupStartIndex = i + 1;
+      currentGroupStartTime = i + 1 < chars.length ? chars[i + 1].startTime : 0;
       currentGroupDuration = 0;
       currentGroupCharCount = 0;
     } else if (shouldEndGroup) {
       // 结束当前组（不包含当前字符）
       const groupSize = i - currentGroupStartIndex;
+      const groupStartTime = currentGroupStartTime;
       for (let j = currentGroupStartIndex; j < i; j++) {
-        groups.push({ groupId: currentGroupId, groupSize });
+        groups.push({ groupId: currentGroupId, groupSize, groupStartTime });
       }
       currentGroupId++;
       currentGroupStartIndex = i;
+      currentGroupStartTime = chars[i].startTime;
       currentGroupDuration = charDuration;
       currentGroupCharCount = 1;
     }
@@ -187,8 +200,9 @@ export function calculateBounceGroups(
   // 处理最后一组
   if (currentGroupStartIndex < chars.length) {
     const groupSize = chars.length - currentGroupStartIndex;
+    const groupStartTime = currentGroupStartTime;
     for (let j = currentGroupStartIndex; j < chars.length; j++) {
-      groups.push({ groupId: currentGroupId, groupSize });
+      groups.push({ groupId: currentGroupId, groupSize, groupStartTime });
     }
   }
 

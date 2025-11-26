@@ -857,10 +857,17 @@ watch(() => searchStore.searchResults, () => {
         font-size: var(--custom-font-size-md);
         color: var(--el-text-color-primary);
         position: relative;
+        user-select: none;
 
         .el-icon {
             font-size: var(--custom-font-size-lg);
             color: var(--el-text-color-regular);
+            transition: color 0.2s;
+            flex-shrink: 0;
+        }
+
+        span {
+            flex: 1;
             transition: color 0.2s;
         }
 
@@ -871,8 +878,13 @@ watch(() => searchStore.searchResults, () => {
 
         &:hover {
             background: var(--el-fill-color-light);
+            color: var(--el-color-primary);
 
             .el-icon {
+                color: var(--el-color-primary);
+            }
+
+            span {
                 color: var(--el-color-primary);
             }
         }
