@@ -87,6 +87,16 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
   // 检查缓存是否存在且有效
   const hasValidCache = async (songId: string): Promise<boolean> => {
     try {
+      // Electron 生产环境：检查文件系统
+      if (shouldUseFileSystem()) {
+        const result = await window.electron?.invoke("has-audio-cache", songId);
+        if (result?.success && result?.exists) {
+          return true;
+        }
+        return false;
+      }
+
+      // Web 环境或 Electron 开发环境：检查 IndexedDB
       await init();
       const metadata = await getMetadata(songId);
       if (!metadata) return false;
@@ -112,6 +122,21 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
   // 获取缓存的音频Blob
   const getCachedAudio = async (songId: string): Promise<Blob | null> => {
     try {
+      // Electron 生产环境：从文件系统读取
+      if (shouldUseFileSystem()) {
+        const result = await window.electron?.invoke(
+          "read-audio-cache",
+          songId
+        );
+        if (result?.success && result?.buffer) {
+          const blob = new Blob([result.buffer], { type: "audio/mpeg" });
+          console.log(`从文件系统读取缓存音频: ${songId}`);
+          return blob;
+        }
+        return null;
+      }
+
+      // Web 环境或 Electron 开发环境：从 IndexedDB 读取
       await init();
       if (!db.value) return null;
 
@@ -172,19 +197,19 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       // 检查是否已缓存
       const alreadyCached = await hasValidCache(songId);
       if (alreadyCached) {
-        console.log(`✅ 歌曲 ${songId} 已缓存，跳过`);
+        //console.log(`✅ 歌曲 ${songId} 已缓存，跳过`);
         return;
       }
 
       // 检查是否正在处理
       if (downloadingSet.value.has(songId)) {
-        console.log(`⏸️ 歌曲 ${songId} 正在处理中，跳过`);
+        //console.log(`⏸️ 歌曲 ${songId} 正在处理中，跳过`);
         return;
       }
 
       downloadingSet.value.add(songId);
 
-      console.log(`🎵 智能缓存：等待缓冲完成: ${songId}`);
+      //console.log(`🎵 智能缓存：等待缓冲完成: ${songId}`);
 
       // 等待音频缓冲到一定程度（不需要完全加载，减少等待时间）
       const waitForBuffering = new Promise<void>((resolve) => {
@@ -216,7 +241,7 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       abortControllers.value.set(songId, abortController);
 
       // 流式下载完整音频文件（支持进度回调）
-      console.log(`⬇️ 开始流式下载: ${songId}`);
+      //console.log(`⬇️ 开始流式下载: ${songId}`);
 
       const response = await fetch(audioUrl, {
         signal: abortController.signal,
@@ -257,7 +282,7 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       const blob = new Blob(chunks as BlobPart[], { type: "audio/mpeg" });
 
       if (blob.size === 0) {
-        console.error(`❌ 下载的音频文件大小为 0: ${songId}`);
+        //console.error(`❌ 下载的音频文件大小为 0: ${songId}`);
         return;
       }
 
@@ -277,13 +302,13 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       if (onComplete) {
         const blobUrl = URL.createObjectURL(blob);
         onComplete(blobUrl);
-        console.log(`🎉 缓存完成，可切换到离线播放: ${songId}`);
+        //console.log(`🎉 缓存完成，可切换到离线播放: ${songId}`);
       }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        console.log(`⏹️ 下载已中止: ${songId}`);
+        //console.log(`⏹️ 下载已中止: ${songId}`);
       } else {
-        console.error("❌ 捕获音频失败:", error);
+        //console.error("❌ 捕获音频失败:", error);
       }
     } finally {
       downloadingSet.value.delete(songId);
@@ -304,14 +329,14 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
 
       // 检查是否正在下载
       if (downloadingSet.value.has(songId)) {
-        console.log(`⏸️ 歌曲 ${songId} 正在下载中，跳过重复下载`);
+        //console.log(`⏸️ 歌曲 ${songId} 正在下载中，跳过重复下载`);
         return null;
       }
 
       // 检查是否已缓存
       const alreadyCached = await hasValidCache(songId);
       if (alreadyCached) {
-        console.log(`✅ 歌曲 ${songId} 已缓存，跳过下载`);
+        //console.log(`✅ 歌曲 ${songId} 已缓存，跳过下载`);
         const cachedBlob = await getCachedAudio(songId);
         if (cachedBlob && onComplete) {
           const blobUrl = URL.createObjectURL(cachedBlob);
@@ -333,7 +358,7 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       const abortController = new AbortController();
       abortControllers.value.set(songId, abortController);
 
-      console.log(`⬇️ 开始下载音频: ${songId}, 音质: ${quality}`);
+      //console.log(`⬇️ 开始下载音频: ${songId}, 音质: ${quality}`);
 
       // 使用流式下载，支持进度回调
       const response = await fetch(audioUrl, {
@@ -374,7 +399,7 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       const blob = new Blob(chunks as BlobPart[], { type: "audio/mpeg" });
 
       if (blob.size === 0) {
-        console.error(`❌ 下载的音频文件大小为 0: ${songId}`);
+        //console.error(`❌ 下载的音频文件大小为 0: ${songId}`);
         return null;
       }
 
@@ -400,9 +425,9 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       return blob;
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        console.log(`⏹️ 下载已中止: ${songId}`);
+        //console.log(`⏹️ 下载已中止: ${songId}`);
       } else {
-        console.error("❌ 下载并缓存音频失败:", error);
+        //console.error("❌ 下载并缓存音频失败:", error);
       }
       return null;
     } finally {
@@ -418,7 +443,7 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       controller.abort();
       abortControllers.value.delete(songId);
       downloadingSet.value.delete(songId);
-      console.log(`🛑 已中止下载: ${songId}`);
+      //console.log(`🛑 已中止下载: ${songId}`);
     }
   };
 
@@ -428,11 +453,11 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
     if (count > 0) {
       abortControllers.value.forEach((controller, songId) => {
         controller.abort();
-        console.log(`🛑 已中止下载: ${songId}`);
+        //console.log(`🛑 已中止下载: ${songId}`);
       });
       abortControllers.value.clear();
       downloadingSet.value.clear();
-      console.log(`🛑 已中止所有下载，共 ${count} 个`);
+      ////console.log(`🛑 已中止所有下载，共 ${count} 个`);
     }
   };
 
@@ -563,7 +588,7 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
         }
       }
     } catch (error) {
-      console.error("清理缓存空间失败:", error);
+      //console.error("清理缓存空间失败:", error);
     }
   };
 
@@ -583,6 +608,20 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
 
   // 删除缓存
   const deleteCache = async (songId: string): Promise<void> => {
+    // Electron 生产环境：从文件系统删除
+    if (shouldUseFileSystem()) {
+      const result = await window.electron?.invoke(
+        "delete-audio-cache",
+        songId
+      );
+      if (result?.success) {
+        //console.log(`缓存已从文件系统删除: ${songId}`);
+        return;
+      }
+      // 如果文件系统删除失败，继续尝试删除 IndexedDB（可能有残留）
+    }
+
+    // Web 环境或 Electron 开发环境：从 IndexedDB 删除
     if (!db.value) await init();
 
     // 删除音频文件
@@ -605,7 +644,7 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       request.onerror = () => reject(request.error);
     });
 
-    console.log(`缓存已删除: ${songId}`);
+    //console.log(`缓存已删除: ${songId}`);
   };
 
   // 清空所有缓存
@@ -614,7 +653,7 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
     if (shouldUseFileSystem()) {
       const result = await window.electron?.invoke("clear-audio-cache");
       if (result?.success) {
-        console.log("文件系统音频缓存已清空");
+        //console.log("文件系统音频缓存已清空");
         return;
       } else {
         throw new Error(result?.error || "清空文件系统缓存失败");
@@ -649,7 +688,7 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       metadataRequest.onerror = () => reject(metadataRequest.error);
     });
 
-    console.log("IndexedDB 音频缓存已清空");
+    //console.log("IndexedDB 音频缓存已清空");
   };
 
   // 获取缓存统计信息
@@ -717,10 +756,10 @@ export const useAudioCacheStore = defineStore("audioCache", () => {
       }
 
       if (cleanedCount > 0) {
-        console.log(`清理了 ${cleanedCount} 个过期缓存`);
+        //console.log(`清理了 ${cleanedCount} 个过期缓存`);
       }
     } catch (error) {
-      console.error("清理过期缓存失败:", error);
+      //console.error("清理过期缓存失败:", error);
     }
   };
 
