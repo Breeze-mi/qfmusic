@@ -29,6 +29,7 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 
 let win: BrowserWindow | null;
 let tray: Tray | null = null;
+let closeToTray = false; // 是否关闭到托盘（默认false）
 
 // 创建系统托盘
 function createTray() {
@@ -111,15 +112,12 @@ function createWindow() {
 
   // 处理窗口关闭事件
   win.on("close", (event) => {
-    if (!app.isQuiting) {
+    // 如果开启了关闭到托盘
+    if (closeToTray && !app.isQuiting) {
       event.preventDefault();
-
-      // 从渲染进程获取设置
-      win?.webContents.send("get-tray-setting");
-
-      // 默认最小化到托盘（如果用户没有设置，默认启用）
       win?.hide();
     }
+    // 否则正常关闭退出程序
   });
 }
 
@@ -166,7 +164,7 @@ ipcMain.handle(
       await fs.writeFile(filePath, Buffer.from(buffer));
       return { success: true, filePath };
     } catch (error: any) {
-      console.error("保存音频文件失败:", error);
+      // console.error("保存音频文件失败:", error);
       return { success: false, error: error.message };
     }
   }
@@ -305,6 +303,91 @@ ipcMain.handle("clear-audio-cache", async () => {
   }
 });
 
+// 读取音频缓存（用于离线播放）
+ipcMain.handle("read-audio-cache", async (_event, songId: string) => {
+  try {
+    const audioFilePath = path.join(audioCacheDir, `${songId}.audio`);
+    const metadataFilePath = path.join(audioCacheDir, `${songId}.meta.json`);
+
+    // 检查文件是否存在
+    if (!existsSync(audioFilePath) || !existsSync(metadataFilePath)) {
+      return { success: false, error: "缓存不存在" };
+    }
+
+    // 读取元数据
+    const metadataContent = await fs.readFile(metadataFilePath, "utf-8");
+    const metadata = JSON.parse(metadataContent);
+
+    // 读取音频文件
+    const buffer = await fs.readFile(audioFilePath);
+
+    return {
+      success: true,
+      buffer: buffer.buffer,
+      metadata,
+    };
+  } catch (error: any) {
+    console.error("读取音频缓存失败:", error);
+    return { success: false, error: error.message };
+  }
+});
+
+// 检查音频缓存是否存在
+ipcMain.handle("has-audio-cache", async (_event, songId: string) => {
+  try {
+    const audioFilePath = path.join(audioCacheDir, `${songId}.audio`);
+    const metadataFilePath = path.join(audioCacheDir, `${songId}.meta.json`);
+
+    // 检查两个文件是否都存在
+    if (!existsSync(audioFilePath) || !existsSync(metadataFilePath)) {
+      return { success: true, exists: false };
+    }
+
+    // 读取元数据检查是否过期
+    const metadataContent = await fs.readFile(metadataFilePath, "utf-8");
+    const metadata = JSON.parse(metadataContent);
+
+    // 检查缓存是否过期（2天）
+    const CACHE_EXPIRY_DAYS = 2;
+    const now = Date.now();
+    const cacheAge = now - metadata.cachedAt;
+    const maxAge = CACHE_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+
+    if (cacheAge > maxAge) {
+      // 缓存已过期，删除文件
+      await fs.unlink(audioFilePath);
+      await fs.unlink(metadataFilePath);
+      return { success: true, exists: false, expired: true };
+    }
+
+    return { success: true, exists: true, metadata };
+  } catch (error: any) {
+    console.error("检查音频缓存失败:", error);
+    return { success: false, error: error.message, exists: false };
+  }
+});
+
+// 删除单个音频缓存
+ipcMain.handle("delete-audio-cache", async (_event, songId: string) => {
+  try {
+    const audioFilePath = path.join(audioCacheDir, `${songId}.audio`);
+    const metadataFilePath = path.join(audioCacheDir, `${songId}.meta.json`);
+
+    if (existsSync(audioFilePath)) {
+      await fs.unlink(audioFilePath);
+    }
+    if (existsSync(metadataFilePath)) {
+      await fs.unlink(metadataFilePath);
+    }
+
+    console.log(`音频缓存已删除: ${songId}`);
+    return { success: true };
+  } catch (error: any) {
+    console.error("删除音频缓存失败:", error);
+    return { success: false, error: error.message };
+  }
+});
+
 // 获取封面缓存大小
 ipcMain.handle("get-cover-cache-size", async () => {
   try {
@@ -428,7 +511,7 @@ ipcMain.handle("show-open-dialog", async () => {
 
 // IPC 处理：控制是否最小化到托盘
 ipcMain.handle("set-close-to-tray", async (_event, enabled: boolean) => {
-  app.isQuiting = !enabled;
+  closeToTray = enabled; // 更新全局变量
   return { success: true };
 });
 
