@@ -114,7 +114,7 @@ const cacheTimerId = ref<number | null>(null);
 const revokeBlobUrl = () => {
     if (currentBlobUrl.value && currentBlobUrl.value.startsWith('blob:')) {
         URL.revokeObjectURL(currentBlobUrl.value);
-        console.log('🗑️ 释放 Blob URL，防止内存泄漏');
+        // console.log('🗑️ 释放 Blob URL，防止内存泄漏');
         currentBlobUrl.value = null;
     }
 };
@@ -124,7 +124,7 @@ const clearCacheTimer = () => {
     if (cacheTimerId.value !== null) {
         clearTimeout(cacheTimerId.value);
         cacheTimerId.value = null;
-        console.log('⏹️ 清除后台缓存定时器');
+        // console.log('⏹️ 清除后台缓存定时器');
     }
 };
 
@@ -481,10 +481,7 @@ watch(
                 let songDetail = cacheStore.getCachedSong(newSong.id);
 
                 if (!songDetail) {
-                    console.log(`📡 请求API获取歌曲信息: ${newSong.name}, 音质: ${settingsStore.quality}`);
-
-                    // 直接获取歌曲，不进行健康检查
-                    // 让业务请求自己处理成功或失败
+                    // 尝试从 API 获取歌曲详情
                     const fetchedSong = await fetchSongWithQualityFallback(newSong.id);
                     songDetail = fetchedSong ?? undefined;
 
@@ -492,32 +489,36 @@ watch(
                         // 缓存歌曲详情
                         cacheStore.setCachedSong(newSong.id, songDetail);
                     }
+                }
 
-                    if (!songDetail) {
-                        handleSongLoadError("无法加载歌曲，所有音质均不可用");
+                // ✅ 关键修复：如果有音频缓存，即使没有歌曲详情也可以播放
+                if (!songDetail && !isFromAudioCache) {
+                    // 没有歌曲详情，也没有音频缓存，无法播放
+                    handleSongLoadError("无法加载歌曲，所有音质均不可用");
+                    return;
+                }
+
+                // 如果有歌曲详情，检查 URL 是否有效（仅在线播放需要）
+                if (songDetail && !isFromAudioCache) {
+                    if (!songDetail.url || songDetail.url.trim() === '') {
+                        handleSongLoadError("音频链接无效，该歌曲可能无法播放");
                         return;
                     }
                 }
 
-                // 确保songDetail存在后再使用
-                if (!songDetail) {
-                    handleSongLoadError("歌曲详情获取失败");
-                    return;
-                }
-
-                // 检查音频 URL 是否有效
-                if (!songDetail.url || songDetail.url.trim() === '') {
-                    handleSongLoadError("音频链接无效，该歌曲可能无法播放");
-                    return;
-                }
-
                 // ✅ 在设置音频源之前，检查是否还是当前要加载的歌曲
                 if (currentLoadingSongId.value !== newSong.id) {
-                    console.log(`⚠️ 歌曲已切换，放弃加载: ${newSong.name}`);
+                    // 释放刚获取的 Blob URL
+                    if (isFromAudioCache && audioUrl) {
+                        URL.revokeObjectURL(audioUrl);
+                    }
                     return;
                 }
 
-                playerStore.setCurrentSongDetail(songDetail as SongDetail);
+                // 设置歌曲详情（如果有的话）
+                if (songDetail) {
+                    playerStore.setCurrentSongDetail(songDetail as SongDetail);
+                }
 
                 // 3. 设置音频源（优先使用缓存）
                 if (isFromAudioCache && audioUrl) {
@@ -526,13 +527,12 @@ watch(
                     currentBlobUrl.value = audioUrl;
 
                     console.log(`🎵 播放缓存音频: ${newSong.name}`);
-                    console.log(`📍 Blob URL: ${audioUrl.substring(0, 50)}...`);
-                } else {
+                } else if (songDetail) {
                     // ✅ 使用在线音频
                     audioRef.value.src = songDetail.url;
 
-                    console.log(`🌐 播放在线音频: ${newSong.name}`);
-                    console.log(`📍 音频URL: ${songDetail.url.substring(0, 100)}...`);
+                    // console.log(`🌐 播放在线音频: ${newSong.name}`);
+                    // console.log(`📍 音频URL: ${songDetail.url.substring(0, 100)}...`);
 
                     // ============================================
                     // 🎯 方案一：下次播放使用缓存（当前方案）
@@ -558,7 +558,7 @@ watch(
 
                                 // 检查是否还是当前歌曲
                                 if (currentLoadingSongId.value !== currentSongId) {
-                                    console.log(`⚠️ 歌曲已切换，取消缓存: ${newSong.name}`);
+                                    // console.log(`⚠️ 歌曲已切换，取消缓存: ${newSong.name}`);
                                     return;
                                 }
 
@@ -569,7 +569,7 @@ watch(
                                     return;
                                 }
 
-                                console.log(`💾 开始智能缓存（播放优先）: ${newSong.name}`);
+                                // console.log(`💾 开始智能缓存（播放优先）: ${newSong.name}`);
 
                                 // 进度回调（可选，用于调试）
                                 const onProgress = (percent: number) => {
@@ -583,7 +583,7 @@ watch(
                                     // 释放 Blob URL（因为我们不立即使用）
                                     URL.revokeObjectURL(blobUrl);
 
-                                    console.log(`✅ 缓存完成，下次播放将使用离线版本: ${newSong.name}`);
+                                    //console.log(`✅ 缓存完成，下次播放将使用离线版本: ${newSong.name}`);
 
                                     // 静默提示（不打扰用户）
                                     if (import.meta.env.DEV) {
@@ -624,13 +624,13 @@ watch(
 
                     // ✅ 检查是否还是当前要加载的歌曲
                     if (currentLoadingSongId.value !== newSong.id) {
-                        console.log(`⚠️ 歌曲已切换，放弃错误处理: ${newSong.name}`);
+                        //console.log(`⚠️ 歌曲已切换，放弃错误处理: ${newSong.name}`);
                         return;
                     }
 
                     // ✅ 防止并发重试
                     if (retryingSet.value.has(newSong.id)) {
-                        console.log(`⚠️ 歌曲正在重试中，跳过: ${newSong.name}`);
+                        //console.log(`⚠️ 歌曲正在重试中，跳过: ${newSong.name}`);
                         return;
                     }
 
@@ -653,7 +653,7 @@ watch(
                         if (newSongDetail && audioRef.value) {
                             // ✅ 再次检查是否还是当前歌曲
                             if (currentLoadingSongId.value !== newSong.id) {
-                                console.log(`⚠️ 歌曲已切换，放弃重新加载: ${newSong.name}`);
+                                //console.log(`⚠️ 歌曲已切换，放弃重新加载: ${newSong.name}`);
                                 return;
                             }
 
@@ -795,7 +795,7 @@ const handleEnded = () => {
 
     // 如果当前 src 是 data URL（临时的静音音频），忽略 ended 事件
     if (audioRef.value && audioRef.value.src.startsWith('data:audio/wav')) {
-        console.log("⏭️ 忽略 data URL 的 ended 事件");
+        //console.log("⏭️ 忽略 data URL 的 ended 事件");
         return;
     }
 
@@ -811,7 +811,7 @@ const handleEnded = () => {
                 if (audioCacheStore) {
                     const cachedAudio = await audioCacheStore.getCachedAudio(currentSong.id);
                     if (cachedAudio) {
-                        console.log(`🔄 单曲循环：使用缓存音频 - ${currentSong.name}`);
+                        //console.log(`🔄 单曲循环：使用缓存音频 - ${currentSong.name}`);
                         // 释放旧的 Blob URL
                         revokeBlobUrl();
                         // 使用缓存的音频
@@ -1060,10 +1060,7 @@ onMounted(async () => {
             let songDetail = cacheStore.getCachedSong(song.id);
 
             if (!songDetail) {
-                console.log(`从API获取歌曲详情: ${song.name}`);
-
-                // 直接获取歌曲，不进行健康检查
-                // 让业务请求自己处理成功或失败
+                // 尝试从 API 获取歌曲详情
                 const fetchedSong = await fetchSongWithQualityFallback(song.id);
                 songDetail = fetchedSong ?? undefined;
 
@@ -1072,69 +1069,78 @@ onMounted(async () => {
                 }
             }
 
+            // ✅ 关键修复：如果有音频缓存，即使没有歌曲详情也可以播放
+            if (!songDetail && !cachedAudioUrl) {
+                // 没有歌曲详情，也没有音频缓存，无法播放
+                console.error("无法获取歌曲详情且无缓存");
+                ElMessage.error("无法加载歌曲，请尝试切换歌曲");
+                return;
+            }
+
+            // 设置歌曲详情（如果有的话）
             if (songDetail) {
-                console.log("歌曲详情加载成功，设置音频源");
                 playerStore.setCurrentSongDetail(songDetail);
+            }
 
-                // 设置音频源（优先使用缓存）
-                audioRef.value.pause();
-                const isUsingAudioCache = !!cachedAudioUrl;
+            // 设置音频源（优先使用缓存）
+            audioRef.value.pause();
+            const isUsingAudioCache = !!cachedAudioUrl;
 
-                if (cachedAudioUrl) {
-                    // 使用缓存的音频文件
-                    audioRef.value.src = cachedAudioUrl;
-                    console.log(`🎵 刷新后播放缓存音频: ${song.name}`);
-                } else {
-                    // 🔧 直接使用原始 URL
-                    audioRef.value.src = songDetail.url;
-                    console.log(`🌐 刷新后播放在线音频（直接URL）: ${song.name}`);
+            if (cachedAudioUrl) {
+                // 使用缓存的音频文件
+                audioRef.value.src = cachedAudioUrl;
+                console.log(`🎵 刷新后播放缓存音频: ${song.name}`);
+            } else if (songDetail) {
+                // 使用在线 URL
+                audioRef.value.src = songDetail.url;
+                console.log(`🌐 刷新后播放在线音频: ${song.name}`);
+            }
+
+            // 监听加载错误，处理缓存失效的情况
+            const handleMountedLoadError = async () => {
+                console.error(`刷新后音频加载失败: ${song.name}`);
+
+                // 移除错误监听器
+                audioRef.value?.removeEventListener('error', handleMountedLoadError);
+
+                // 如果使用的是音频文件缓存，清除失效的缓存
+                if (isUsingAudioCache && audioCacheStore) {
+                    console.log(`清除失效的音频缓存: ${song.name}`);
+                    await audioCacheStore.deleteCache(song.id);
                 }
 
-                // 监听加载错误，处理缓存失效的情况
-                const handleMountedLoadError = async () => {
-                    console.error(`刷新后音频加载失败: ${song.name}`);
+                // 清除歌曲信息缓存
+                cacheStore.setCachedSong(song.id, undefined);
 
-                    // 移除错误监听器
-                    audioRef.value?.removeEventListener('error', handleMountedLoadError);
+                // 重新加载歌曲
+                console.log(`重新加载歌曲: ${song.name}`);
+                const newSongDetail = await reloadSongAfterCacheExpired(song.id, song.name);
 
-                    // 如果使用的是音频文件缓存，清除失效的缓存
-                    if (isUsingAudioCache && audioCacheStore) {
-                        console.log(`清除失效的音频缓存: ${song.name}`);
-                        await audioCacheStore.deleteCache(song.id);
+                if (newSongDetail && audioRef.value) {
+                    // 设置新的URL
+                    audioRef.value.src = newSongDetail.url;
+                    audioRef.value.load();
+
+                    // 恢复播放进度
+                    const savedTime = playerStore.getSavedProgress(song.id);
+                    if (savedTime > 0) {
+                        audioRef.value.addEventListener('loadedmetadata', () => {
+                            if (audioRef.value) {
+                                audioRef.value.currentTime = savedTime;
+                                playerStore.setCurrentTime(savedTime);
+                            }
+                        }, { once: true });
                     }
+                }
+            };
 
-                    // 清除歌曲信息缓存
-                    cacheStore.setCachedSong(song.id, undefined);
+            // 添加一次性错误监听器
+            audioRef.value.addEventListener('error', handleMountedLoadError, { once: true });
 
-                    // 重新加载歌曲
-                    console.log(`重新加载歌曲: ${song.name}`);
-                    const newSongDetail = await reloadSongAfterCacheExpired(song.id, song.name);
+            audioRef.value.load();
 
-                    if (newSongDetail && audioRef.value) {
-                        // 设置新的URL
-                        audioRef.value.src = newSongDetail.url;
-                        audioRef.value.load();
-
-                        // 恢复播放进度
-                        const savedTime = playerStore.getSavedProgress(song.id);
-                        if (savedTime > 0) {
-                            audioRef.value.addEventListener('loadedmetadata', () => {
-                                if (audioRef.value) {
-                                    audioRef.value.currentTime = savedTime;
-                                    playerStore.setCurrentTime(savedTime);
-                                }
-                            }, { once: true });
-                        }
-                    }
-                };
-
-                // 添加一次性错误监听器
-                audioRef.value.addEventListener('error', handleMountedLoadError, { once: true });
-
-                audioRef.value.load();
-
-                // 恢复播放进度
-                const savedTime = playerStore.getSavedProgress(song.id);
+            // 恢复播放进度
+            const savedTime = playerStore.getSavedProgress(song.id);
                 if (savedTime > 0) {
                     console.log(`恢复播放进度: ${savedTime.toFixed(2)}秒`);
                     // 等待音频加载完成后设置进度
@@ -1147,12 +1153,6 @@ onMounted(async () => {
                 } else {
                     audioRef.value.currentTime = 0;
                 }
-
-                // console.log("音频源已设置，等待用户点击播放");
-            } else {
-                console.error("无法获取歌曲详情");
-                ElMessage.error("无法加载歌曲，请尝试切换歌曲");
-            }
         } catch (error) {
             console.error("加载歌曲失败:", error);
             ElMessage.error("加载歌曲失败");
@@ -1455,7 +1455,7 @@ const onComplete = (blobUrl: string) => {
     // 检查是否还在播放这首歌
     if (currentLoadingSongId.value !== currentSongId || !audioRef.value) {
         URL.revokeObjectURL(blobUrl);
-        console.log(`⚠️ 歌曲已切换，放弃切换到缓存`);
+        //console.log(`⚠️ 歌曲已切换，放弃切换到缓存`);
         return;
     }
 
@@ -1465,7 +1465,7 @@ const onComplete = (blobUrl: string) => {
     const currentVolume = audioRef.value.volume;
     const playbackRate = audioRef.value.playbackRate;
 
-    console.log(`🔄 开始丝滑切换: 位置 ${currentTime.toFixed(2)}s`);
+    //console.log(`🔄 开始丝滑切换: 位置 ${currentTime.toFixed(2)}s`);
 
     // 释放旧的 Blob URL
     revokeBlobUrl();
@@ -1493,7 +1493,7 @@ const onComplete = (blobUrl: string) => {
                 // 5. 如果之前在播放，继续播放
                 if (isPlaying) {
                     audioRef.value.play().then(() => {
-                        console.log(`✅ 切换完成，继续播放`);
+                        //console.log(`✅ 切换完成，继续播放`);
                         ElMessage.success({
                             message: '已切换到离线播放',
                             duration: 2000,
